@@ -41,4 +41,4 @@ else()
 endif()
 
 target_include_directories(Evolutionary PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/display)
-target_compile_options(Evolutionary PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3>)
+target_compile_options(Evolutionary PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -g -G>)
