@@ -2,18 +2,41 @@
 #include <curand_kernel.h>
 #include <csignal>
 #include <unistd.h>
+#include <algorithm>
+#include <thrust/scan.h>
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+
 
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
 #endif
 
 #define seed 1234
-#define FOOD_SPAWN_RATE 0.1f
+#define INITIAL_FOOD_SPAWN_RATE 0.07f
+#define FOOD_SPAWN_RATE 0.0005f
 #define INITIAL_CREATURE_ENERGY 1
+#define COST_OF_LIVING 0.01f
+#define INITIAL_CREATURE_N 128
 
 // bit flags for map cells
 #define   BIT_FOOD 0
 #define   BIT_CREATURE 1
+
+// # define ENERGY_LEVEL_SENSOR 0
+// # define FOOD_PRESENCE_HERE_SENSOR 1
+// # define FOOD_PRESENCE_RIGHT_SENSOR 2
+// # define FOOD_PRESENCE_LEFT_SENSOR 3
+// # define FOOD_PRESENCE_DOWN_SENSOR 4
+// # define FOOD_PRESENCE_UP_SENSOR 5
+
+// # define EAT_ACTION 0
+// # define REPRODUCE_ACTION 1
+// # define MOVE_RIGHT_ACTION 2
+// # define MOVE_LEFT_ACTION 3
+// # define MOVE_DOWN_ACTION 4
+// # define MOVE_UP_ACTION 5
+
 
 #define CUDA_CHECK(cudaStatus)                                      \
     if(cudaStatus != cudaSuccess)                                   \
@@ -58,13 +81,14 @@ __global__ void place_food(
     unsigned int* map,
     curandState* random_states,
     int map_width,
-    int map_height
+    int map_height,
+    float food_spawn_rate
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= map_width * map_height) return;
 
     float rand_val = curand_uniform(&random_states[idx]);
-    map[idx] |= (rand_val < FOOD_SPAWN_RATE ? 1 << BIT_FOOD : 0);
+    map[idx] |= (rand_val < food_spawn_rate ? 1 << BIT_FOOD : 0);
 }
 
 __global__ void initialize_creatures(
@@ -110,10 +134,19 @@ __global__ void creature_action_step(
     float* creature_bias,
     int* creature_by_actions,
     int* action_counts,
+    unsigned int* creature_alive,
     curandState* random_states
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= creature_n) return;
+
+    creature_energy[idx] -= COST_OF_LIVING; // Energy cost for living, can be adjusted
+    creature_alive[idx] = creature_energy[idx] > 0.0f ? 1 : 0; // Mark creature as dead if energy is depleted
+
+    if (!creature_alive[idx]) {
+        // Creature dies, we can just skip it for now. It will be overwritten when new creatures are initialized.
+        return;
+    }
 
     extern __shared__ float neuron_values[];
     /*
@@ -259,6 +292,77 @@ __global__ void move_up(
     creature_y[creature_by_actions[5 * max_creature_n + idx]] = new_y;
 }
 
+__global__ void eat_food(
+    unsigned int* creature_x,
+    unsigned int* creature_y,
+    float* creature_energy,
+    int max_creature_n,
+    int map_width,
+    int map_height,
+    unsigned int* map,
+    int* creature_by_actions,
+    int* action_counts
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= action_counts[0]) return;
+
+    int creature_idx = creature_by_actions[0 * max_creature_n + idx];
+    int x = creature_x[creature_idx];
+    int y = creature_y[creature_idx];
+
+    int cell_index = get_cell_index(x, y, map_width, map_height);
+
+    // Here we should do it more carefully, maybe atomically, but for now ambiguity is ok
+    if (map[cell_index] & (1 << BIT_FOOD)) {
+        creature_energy[creature_idx] = 1.0f;
+        map[cell_index] &= ~(1 << BIT_FOOD);
+    }
+}
+
+__global__ void reproduce(
+    unsigned int* creature_x,
+    unsigned int* creature_y,
+    float* creature_energy,
+    int* creature_n,
+    int max_creature_n,
+    int map_width,
+    int map_height,
+    unsigned int* map,
+    float* creature_matrix,
+    float* creature_bias,
+    int* creature_by_actions,
+    int* action_counts,
+    unsigned int* creature_alive,
+    curandState* random_states
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= action_counts[1]) return;
+
+    int new_creature_idx = atomicAdd(creature_n, 1);
+
+    if (new_creature_idx >= max_creature_n) {
+        return; // No more space for new creatures, skip reproduction
+    }
+
+    int parent_idx = creature_by_actions[1 * max_creature_n + idx];
+
+    creature_x[new_creature_idx] = creature_x[parent_idx];
+    creature_y[new_creature_idx] = creature_y[parent_idx];
+
+    creature_alive[new_creature_idx] = 1;
+
+    float parent_energy = creature_energy[parent_idx];
+    creature_energy[new_creature_idx] = parent_energy / 2.0f; // Split energy between parent and offspring
+    creature_energy[parent_idx] = parent_energy / 2.0f;
+    for(int i = 0; i < 6 * 6; i++) {
+        creature_matrix[new_creature_idx + i * max_creature_n] = creature_matrix[parent_idx + i * max_creature_n] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy weights
+    }
+    for(int i = 0; i < 6; i++) {
+        creature_bias[new_creature_idx + i * max_creature_n] = creature_bias[parent_idx + i * max_creature_n] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy biases
+    }
+    
+}
+
 
 __global__ void remove_creatures_from_map(
     unsigned int* map,
@@ -278,10 +382,15 @@ __global__ void place_creatures_on_map(
     int creature_n,
     int max_creature_n,
     int map_width,
-    int map_height
+    int map_height,
+    float* creature_energy,
+    unsigned int* creature_alive
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= creature_n) return;
+    if (!creature_alive[idx]) {
+        return; // Skip dead creatures
+    }
 
     int x = creature_x[idx];
     int y = creature_y[idx];
@@ -313,31 +422,43 @@ int main() {
     CUDA_CHECK(cudaMemset(d_map, 0, map_width * map_height * sizeof(unsigned int)));
 
     // Creatures
-    int creatures_n = 1024;
-    int max_creature_n = 1024 * 1024; // maximum number of creatures
+    int* h_creatures_n = new int(INITIAL_CREATURE_N); // initial number of creatures
+    int* d_creatures_n; // initial number of creatures
+    int max_creature_n = 1024 * 1024 * 4; // maximum number of creatures
     unsigned int* d_creature_x;
     unsigned int* d_creature_y;
+    unsigned int* d_creature_alive;
     float* d_creature_energy;
     float* d_creature_matrix;
     float* d_creature_bias;
     int* d_creatures_by_action;
     int* d_action_counts;
+    unsigned int* d_contracted_creature_indices;
+
+    CUDA_CHECK(cudaMalloc(&d_creatures_n, sizeof(int)));
+    CUDA_CHECK(cudaMemcpy(d_creatures_n, h_creatures_n, sizeof(int), cudaMemcpyHostToDevice));
+
     CUDA_CHECK(cudaMalloc(&d_creature_x, max_creature_n * sizeof(unsigned int)));
     CUDA_CHECK(cudaMalloc(&d_creature_y, max_creature_n * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_creature_alive, max_creature_n * sizeof(unsigned int)));
     CUDA_CHECK(cudaMalloc(&d_creature_energy, max_creature_n * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_creature_matrix, max_creature_n * 6 * 6 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_creature_bias, max_creature_n * 6 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_creatures_by_action, max_creature_n * 6 * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_action_counts, 6 * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_contracted_creature_indices, max_creature_n * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemset(d_creature_alive, 1, *h_creatures_n * sizeof(unsigned int)));
 
+    
     // we will use this on the host to reset action counts before each step
     int* h_action_counts = new int[6];
+    float* h_creature_energy = new float[max_creature_n];
 
 
 
     // Randomness source
     curandState* d_random_states;
-    CUDA_CHECK(cudaMalloc(&d_random_states, map_width * map_height * sizeof(curandState)));
+    CUDA_CHECK(cudaMalloc(&d_random_states, max_creature_n * sizeof(curandState)));
 
     #ifdef ENABLE_DISPLAY
     // Displaying
@@ -345,9 +466,9 @@ int main() {
     #endif
 
     printf("Initializing random states...\n");
-    initialize_random_states<<<(map_width * map_height + 255) / 256, 256>>>(
+    initialize_random_states<<<(max_creature_n + 255) / 256, 256>>>(
         d_random_states, 
-        map_width * map_height
+        max_creature_n
     );
     cudaDeviceSynchronize();
 
@@ -358,7 +479,8 @@ int main() {
         d_map, 
         d_random_states, 
         map_width, 
-        map_height
+        map_height,
+        INITIAL_FOOD_SPAWN_RATE
     );
 
     
@@ -366,12 +488,12 @@ int main() {
     cudaDeviceSynchronize();
 
     printf("Initializing creatures...\n");
-    initialize_creatures<<<(creatures_n + 255) / 256, 256>>>(
+    initialize_creatures<<<(*h_creatures_n + 255) / 256, 256>>>(
         d_creature_x, 
         d_creature_y, 
         d_creature_energy, 
         d_random_states, 
-        creatures_n,
+        *h_creatures_n,
         max_creature_n, 
         map_width, 
         map_height, 
@@ -384,15 +506,16 @@ int main() {
 
     //main loop
     bool running = true;
+    int t = 0;
     while (running) {
 
         CUDA_CHECK(cudaMemset(d_action_counts, 0, 6 * sizeof(int)));
         size_t shared_memory_size = 256 * 6 * 2 * sizeof(float); // 256 threads, 6 inputs + 6 outputs per creature
-        creature_action_step<<<(creatures_n + 255) / 256, 256, shared_memory_size>>>(
+        creature_action_step<<<(*h_creatures_n + 255) / 256, 256, shared_memory_size>>>(
             d_creature_x,
             d_creature_y,
             d_creature_energy,
-            creatures_n,
+            *h_creatures_n,
             max_creature_n,
             map_width,
             map_height,
@@ -401,14 +524,20 @@ int main() {
             d_creature_bias,
             d_creatures_by_action,
             d_action_counts,
+            d_creature_alive,
             d_random_states
         );
 
         cudaDeviceSynchronize();
         CUDA_CHECK(cudaMemcpy(h_action_counts, d_action_counts, 6 * sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(h_creature_energy, d_creature_energy, max_creature_n * sizeof(float), cudaMemcpyDeviceToHost));
         cudaDeviceSynchronize();
-
+        std::cout << "All creatures: " << *h_creatures_n << " Action counts: ";
+        for (int i = 0; i < 6; i++) {
+            std::cout << h_action_counts[i] << " ";
+        }
         std::cout << std::endl;
+        // std::cout << "Max energy: " << *std::max_element(h_creature_energy, h_creature_energy + creatures_n) << std::endl;
 
         move_right<<<(h_action_counts[2] + 255) / 256, 256>>>(
             d_creature_x,
@@ -447,6 +576,39 @@ int main() {
             d_action_counts
         );
 
+        eat_food<<<(h_action_counts[0] + 255) / 256, 256>>>(
+            d_creature_x,
+            d_creature_y,
+            d_creature_energy,
+            max_creature_n,
+            map_width,
+            map_height,
+            d_map,
+            d_creatures_by_action,
+            d_action_counts
+        );
+
+        reproduce<<<(h_action_counts[1] + 255) / 256, 256>>>(
+            d_creature_x,
+            d_creature_y,
+            d_creature_energy,
+            d_creatures_n,
+            max_creature_n,
+            map_width,
+            map_height,
+            d_map,
+            d_creature_matrix,
+            d_creature_bias,
+            d_creatures_by_action,
+            d_action_counts,
+            d_creature_alive,
+            d_random_states
+        );
+
+        cudaDeviceSynchronize();
+
+        CUDA_CHECK(cudaMemcpy(h_creatures_n, d_creatures_n, sizeof(int), cudaMemcpyDeviceToHost));
+
         cudaDeviceSynchronize();
 
         // for display purposes
@@ -458,17 +620,41 @@ int main() {
 
         cudaDeviceSynchronize();
 
-        place_creatures_on_map<<<(creatures_n + 255) / 256, 256>>>(
+        place_creatures_on_map<<<(*h_creatures_n + 255) / 256, 256>>>(
             d_map,
             d_creature_x,
             d_creature_y,
-            creatures_n,
+            *h_creatures_n,
             max_creature_n,
             map_width,
-            map_height
+            map_height,
+            d_creature_energy,
+            d_creature_alive
         );
 
         cudaDeviceSynchronize();
+
+        place_food<<<(map_width * map_height + 255) / 256, 256>>>(
+            d_map,
+            d_random_states,
+            map_width,
+            map_height,
+            FOOD_SPAWN_RATE
+        );
+
+        cudaDeviceSynchronize();
+
+        if (!(t % 100)) {
+            thrust::device_ptr<int> dev_flags(d_creature_alive);
+            thrust::device_ptr<int> dev_indices(d_contracted_creature_indices);
+            thrust::exclusive_scan(thrust::device, dev_flags, dev_flags + *h_creatures_n, dev_indices);
+            int last_flag = 0;
+            CUDA_CHECK(cudaMemcpy(&last_flag, d_creature_alive + *h_creatures_n - 1, sizeof(int), cudaMemcpyDeviceToHost));
+            int last_index = 0;
+            CUDA_CHECK(cudaMemcpy(&last_index, d_contracted_creature_indices + *h_creatures_n - 1, sizeof(int), cudaMemcpyDeviceToHost));
+            int contracted_creature_n = last_flag + last_index;
+            std::cout << "Contracted creature count: " << contracted_creature_n << std::endl;
+        }
 
         #ifdef ENABLE_DISPLAY
         display.renderFrame(d_map);
@@ -481,6 +667,8 @@ int main() {
         if (interrupted) {
             running = false;
         }
+
+        t++;
     }
 
     printf("\nQuitting the simulation. Shutting down...\n");
@@ -495,5 +683,8 @@ int main() {
     CUDA_CHECK(cudaFree(d_creature_bias));
     CUDA_CHECK(cudaFree(d_creatures_by_action));
     CUDA_CHECK(cudaFree(d_action_counts));
+    CUDA_CHECK(cudaFree(d_creatures_n));
+    CUDA_CHECK(cudaFree(d_creature_alive));
+    CUDA_CHECK(cudaFree(d_contracted_creature_indices));
     return 0;
 }
