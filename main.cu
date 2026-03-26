@@ -12,13 +12,12 @@
 #include "display/renderer.h"
 #endif
 
-#define seed 1234
 #define INITIAL_FOOD_SPAWN_RATE 0.07f
 #define FOOD_SPAWN_RATE 0.0001f
 #define INITIAL_CREATURE_ENERGY 1
 #define COST_OF_LIVING 0.01f
-#define INITIAL_CREATURE_N 128
-#define MAX_CREATURE_N 1024 * 1024 * 4
+#define INITIAL_CREATURE_N 2048
+#define MAX_CREATURE_N 1024 * 1024
 
 // bit flags for map cells
 #define   BIT_FOOD 0
@@ -67,7 +66,7 @@ __global__ void initialize_random_states(curandState* random_states, int num_sta
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_states) return;
 
-    curand_init(seed, idx, 0, &random_states[idx]);
+    curand_init(1290, idx, 0, &random_states[idx]);
 }
 
 
@@ -570,6 +569,7 @@ int main() {
 
     //main loop
     bool running = true;
+    int max_creature_in_simulation = 0;
     int t = 1;
     while (running) {
 
@@ -680,6 +680,9 @@ int main() {
         cudaDeviceSynchronize();
 
         CUDA_CHECK(cudaMemcpy(h_creatures_n, d_creatures_n, sizeof(int), cudaMemcpyDeviceToHost));
+        if (*h_creatures_n > max_creature_in_simulation) {
+            max_creature_in_simulation = *h_creatures_n;
+        }
 
         // for display purposes
         remove_creatures_from_map<<<(map_width * map_height + 255) / 256, 256>>>(
@@ -711,9 +714,12 @@ int main() {
 
         cudaDeviceSynchronize();
 
-
+        if (*h_creatures_n == 0) {
+            printf("All creatures died. Ending simulation.\n");
+            break;
+        }
         if (!(t % 200)) {
-
+            
             thrust::device_ptr<int> dev_flags(d_creature_alive);
             thrust::device_ptr<int> dev_indices(d_contracted_creature_indices);
             thrust::exclusive_scan(thrust::device, dev_flags, dev_flags + *h_creatures_n, dev_indices);
@@ -774,16 +780,30 @@ int main() {
     fflush(stdout);
 
     CUDA_CHECK(cudaFree(d_map));
-    CUDA_CHECK(cudaFree(d_creature_x));
-    CUDA_CHECK(cudaFree(d_creature_y));
-    CUDA_CHECK(cudaFree(d_creature_energy));
+
+    CUDA_CHECK(cudaFree(d_creature_x_alpha));
+    CUDA_CHECK(cudaFree(d_creature_x_beta));
+
+    CUDA_CHECK(cudaFree(d_creature_y_alpha));
+    CUDA_CHECK(cudaFree(d_creature_y_beta));
+
+
+    CUDA_CHECK(cudaFree(d_creature_energy_alpha));
+    CUDA_CHECK(cudaFree(d_creature_energy_beta));
+
+    CUDA_CHECK(cudaFree(d_creature_matrix_alpha));
+    CUDA_CHECK(cudaFree(d_creature_matrix_beta));
+
+    CUDA_CHECK(cudaFree(d_creature_bias_alpha));
+    CUDA_CHECK(cudaFree(d_creature_bias_beta));
+
     CUDA_CHECK(cudaFree(d_random_states));
-    CUDA_CHECK(cudaFree(d_creature_matrix));
-    CUDA_CHECK(cudaFree(d_creature_bias));
     CUDA_CHECK(cudaFree(d_creatures_by_action));
     CUDA_CHECK(cudaFree(d_action_counts));
     CUDA_CHECK(cudaFree(d_creatures_n));
     CUDA_CHECK(cudaFree(d_creature_alive));
     CUDA_CHECK(cudaFree(d_contracted_creature_indices));
+
+    printf("Maximum creatures in simulation: %d\n", max_creature_in_simulation);
     return 0;
 }
