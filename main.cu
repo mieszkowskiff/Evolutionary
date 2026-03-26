@@ -14,10 +14,11 @@
 
 #define seed 1234
 #define INITIAL_FOOD_SPAWN_RATE 0.07f
-#define FOOD_SPAWN_RATE 0.0005f
+#define FOOD_SPAWN_RATE 0.0001f
 #define INITIAL_CREATURE_ENERGY 1
 #define COST_OF_LIVING 0.01f
 #define INITIAL_CREATURE_N 128
+#define MAX_CREATURE_N 1024 * 1024 * 4
 
 // bit flags for map cells
 #define   BIT_FOOD 0
@@ -41,6 +42,19 @@
 #define CUDA_CHECK(cudaStatus)                                      \
     if(cudaStatus != cudaSuccess)                                   \
         std::cout << cudaGetErrorString(cudaStatus) << std::endl;   \
+
+
+#define CHECK_CUDA_STATE(msg) \
+do { \
+    cudaDeviceSynchronize(); \
+    cudaError_t err = cudaGetLastError(); \
+    if (err != cudaSuccess) { \
+        std::cout << "\n[!!!] KATASTROFA W: " << msg << "\nPowod: " << cudaGetErrorString(err) << std::endl; \
+        exit(1); \
+    } else { \
+        std::cout << "[OK] Czysto po: " << msg << std::endl; \
+    } \
+} while(0)
 
 
 volatile std::sig_atomic_t interrupted = 0;
@@ -97,7 +111,6 @@ __global__ void initialize_creatures(
     float* creature_energy,
     curandState* random_states,
     int creature_n,
-    int max_creature_n,
     int map_width,
     int map_height,
     unsigned int* map,
@@ -108,10 +121,10 @@ __global__ void initialize_creatures(
     if (idx >= creature_n) return;
 
     for(int i = 0; i < 6 * 6; i++) {
-        creature_matrix[idx + i * max_creature_n] = curand_uniform(&random_states[idx]) * 2 - 1; // random weights in [-1, 1]
+        creature_matrix[idx + i * MAX_CREATURE_N] = curand_uniform(&random_states[idx]) * 2 - 1; // random weights in [-1, 1]
     }
     for(int i = 0; i < 6; i++) {
-        creature_bias[idx + i * max_creature_n] = curand_uniform(&random_states[idx]) * 2 - 1; // random biases in [-1, 1]
+        creature_bias[idx + i * MAX_CREATURE_N] = curand_uniform(&random_states[idx]) * 2 - 1; // random biases in [-1, 1]
     }
 
     creature_x[idx] = curand(&random_states[idx]) % map_width;
@@ -126,7 +139,6 @@ __global__ void creature_action_step(
     unsigned int* creature_y,
     float* creature_energy,
     int creature_n,
-    int max_creature_n,
     int map_width,
     int map_height,
     unsigned int* map,
@@ -134,7 +146,7 @@ __global__ void creature_action_step(
     float* creature_bias,
     int* creature_by_actions,
     int* action_counts,
-    unsigned int* creature_alive,
+    int* creature_alive,
     curandState* random_states
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -180,9 +192,9 @@ __global__ void creature_action_step(
         neuron_values[threadIdx.x + blockDim.x * (i + 6)] = 0.0f;
         for(int j = 0; j < 6; j++) {
             neuron_values[threadIdx.x + blockDim.x * (i + 6)] += 
-                neuron_values[threadIdx.x + blockDim.x * j] * creature_matrix[idx + max_creature_n * (i * 6 + j)];
+                neuron_values[threadIdx.x + blockDim.x * j] * creature_matrix[idx + MAX_CREATURE_N * (i * 6 + j)];
         }
-        neuron_values[threadIdx.x + blockDim.x * (i + 6)] += creature_bias[idx + max_creature_n * i];
+        neuron_values[threadIdx.x + blockDim.x * (i + 6)] += creature_bias[idx + MAX_CREATURE_N * i];
         sum += expf(neuron_values[threadIdx.x + blockDim.x * (i + 6)]); // For softmax
     }
 
@@ -217,13 +229,12 @@ __global__ void creature_action_step(
     }
 
     int creature_index = atomicAdd(&action_counts[action], 1);
-    creature_by_actions[action * max_creature_n + creature_index] = idx;
+    creature_by_actions[action * MAX_CREATURE_N + creature_index] = idx;
 }
 
 __global__ void move_right(
     unsigned int* creature_x,
     unsigned int* creature_y,
-    int max_creature_n,
     int map_width,
     int map_height,
     int* creature_by_actions,
@@ -231,17 +242,16 @@ __global__ void move_right(
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= action_counts[2]) return;
-    int new_x = creature_x[creature_by_actions[2 * max_creature_n + idx]] + 1;
+    int new_x = creature_x[creature_by_actions[2 * MAX_CREATURE_N + idx]] + 1;
     if (new_x >= map_width) {
         new_x -= map_width;
     }
-    creature_x[creature_by_actions[2 * max_creature_n + idx]] = new_x;
+    creature_x[creature_by_actions[2 * MAX_CREATURE_N + idx]] = new_x;
 }
 
 __global__ void move_left(
     unsigned int* creature_x,
     unsigned int* creature_y,
-    int max_creature_n,
     int map_width,
     int map_height,
     int* creature_by_actions,
@@ -249,17 +259,16 @@ __global__ void move_left(
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= action_counts[3]) return;
-    int new_x = creature_x[creature_by_actions[3 * max_creature_n + idx]] - 1;
+    int new_x = creature_x[creature_by_actions[3 * MAX_CREATURE_N + idx]] - 1;
     if (new_x < 0) {
         new_x += map_width;
     }
-    creature_x[creature_by_actions[3 * max_creature_n + idx]] = new_x;
+    creature_x[creature_by_actions[3 * MAX_CREATURE_N + idx]] = new_x;
 }
 
 __global__ void move_down(
     unsigned int* creature_x,
     unsigned int* creature_y,
-    int max_creature_n,
     int map_width,
     int map_height,
     int* creature_by_actions,
@@ -267,17 +276,16 @@ __global__ void move_down(
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= action_counts[4]) return;
-    int new_y = creature_y[creature_by_actions[4 * max_creature_n + idx]] + 1;
+    int new_y = creature_y[creature_by_actions[4 * MAX_CREATURE_N + idx]] + 1;
     if (new_y >= map_height) {
         new_y -= map_height;
     }
-    creature_y[creature_by_actions[4 * max_creature_n + idx]] = new_y;
+    creature_y[creature_by_actions[4 * MAX_CREATURE_N + idx]] = new_y;
 }
 
 __global__ void move_up(
     unsigned int* creature_x,
     unsigned int* creature_y,
-    int max_creature_n,
     int map_width,
     int map_height,
     int* creature_by_actions,
@@ -285,18 +293,17 @@ __global__ void move_up(
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= action_counts[5]) return;
-    int new_y = creature_y[creature_by_actions[5 * max_creature_n + idx]] - 1;
+    int new_y = creature_y[creature_by_actions[5 * MAX_CREATURE_N + idx]] - 1;
     if (new_y < 0) {
         new_y += map_height;
     }
-    creature_y[creature_by_actions[5 * max_creature_n + idx]] = new_y;
+    creature_y[creature_by_actions[5 * MAX_CREATURE_N + idx]] = new_y;
 }
 
 __global__ void eat_food(
     unsigned int* creature_x,
     unsigned int* creature_y,
     float* creature_energy,
-    int max_creature_n,
     int map_width,
     int map_height,
     unsigned int* map,
@@ -306,7 +313,7 @@ __global__ void eat_food(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= action_counts[0]) return;
 
-    int creature_idx = creature_by_actions[0 * max_creature_n + idx];
+    int creature_idx = creature_by_actions[0 * MAX_CREATURE_N + idx];
     int x = creature_x[creature_idx];
     int y = creature_y[creature_idx];
 
@@ -324,7 +331,6 @@ __global__ void reproduce(
     unsigned int* creature_y,
     float* creature_energy,
     int* creature_n,
-    int max_creature_n,
     int map_width,
     int map_height,
     unsigned int* map,
@@ -332,7 +338,7 @@ __global__ void reproduce(
     float* creature_bias,
     int* creature_by_actions,
     int* action_counts,
-    unsigned int* creature_alive,
+    int* creature_alive,
     curandState* random_states
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -340,11 +346,11 @@ __global__ void reproduce(
 
     int new_creature_idx = atomicAdd(creature_n, 1);
 
-    if (new_creature_idx >= max_creature_n) {
+    if (new_creature_idx >= MAX_CREATURE_N) {
         return; // No more space for new creatures, skip reproduction
     }
 
-    int parent_idx = creature_by_actions[1 * max_creature_n + idx];
+    int parent_idx = creature_by_actions[1 * MAX_CREATURE_N + idx];
 
     creature_x[new_creature_idx] = creature_x[parent_idx];
     creature_y[new_creature_idx] = creature_y[parent_idx];
@@ -355,10 +361,10 @@ __global__ void reproduce(
     creature_energy[new_creature_idx] = parent_energy / 2.0f; // Split energy between parent and offspring
     creature_energy[parent_idx] = parent_energy / 2.0f;
     for(int i = 0; i < 6 * 6; i++) {
-        creature_matrix[new_creature_idx + i * max_creature_n] = creature_matrix[parent_idx + i * max_creature_n] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy weights
+        creature_matrix[new_creature_idx + i * MAX_CREATURE_N] = creature_matrix[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy weights
     }
     for(int i = 0; i < 6; i++) {
-        creature_bias[new_creature_idx + i * max_creature_n] = creature_bias[parent_idx + i * max_creature_n] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy biases
+        creature_bias[new_creature_idx + i * MAX_CREATURE_N] = creature_bias[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy biases
     }
     
 }
@@ -380,11 +386,10 @@ __global__ void place_creatures_on_map(
     unsigned int* creature_x,
     unsigned int* creature_y,
     int creature_n,
-    int max_creature_n,
     int map_width,
     int map_height,
     float* creature_energy,
-    unsigned int* creature_alive
+    int* creature_alive
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= creature_n) return;
@@ -404,6 +409,40 @@ __global__ void place_creatures_on_map(
 }
 
 
+__global__ void contract(
+    unsigned int* creature_x,
+    unsigned int* creature_y,
+    float* creature_energy,
+    float* creature_matrix,
+    float* creature_bias,
+    unsigned int* creature_x_save,
+    unsigned int* creature_y_save,
+    float* creature_energy_save,
+    float* creature_matrix_save,
+    float* creature_bias_save,
+    int* contracted_creature_indices,
+    int *creature_alive,
+    int creature_n
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= creature_n) return;
+    if (!creature_alive[idx]) {
+        return; // Skip dead creatures
+    }
+    int new_idx = contracted_creature_indices[idx];
+
+    creature_x_save[new_idx] = creature_x[idx];
+    creature_y_save[new_idx] = creature_y[idx];
+    creature_energy_save[new_idx] = creature_energy[idx];
+    for(int i = 0; i < 6 * 6; i++) {
+        creature_matrix_save[new_idx + i * MAX_CREATURE_N] = creature_matrix[idx + i * MAX_CREATURE_N];
+    }
+    for(int i = 0; i < 6; i++) {
+        creature_bias_save[new_idx + i * MAX_CREATURE_N] = creature_bias[idx + i * MAX_CREATURE_N];
+    }
+}
+
+
 int main() {
     struct sigaction action;
     action.sa_handler = signal_handler;
@@ -416,49 +455,74 @@ int main() {
     // Map
     int map_width = 1024;
     int map_height = 1024;
-    unsigned int* d_map; // d_map is considered as a bit vector (see CellFlags)
 
+    unsigned int* d_map; // d_map is considered as a bit vector (see CellFlags)
     CUDA_CHECK(cudaMalloc(&d_map, map_width * map_height * sizeof(unsigned int)));
     CUDA_CHECK(cudaMemset(d_map, 0, map_width * map_height * sizeof(unsigned int)));
 
     // Creatures
-    int* h_creatures_n = new int(INITIAL_CREATURE_N); // initial number of creatures
-    int* d_creatures_n; // initial number of creatures
-    int max_creature_n = 1024 * 1024 * 4; // maximum number of creatures
-    unsigned int* d_creature_x;
-    unsigned int* d_creature_y;
-    unsigned int* d_creature_alive;
-    float* d_creature_energy;
-    float* d_creature_matrix;
-    float* d_creature_bias;
-    int* d_creatures_by_action;
-    int* d_action_counts;
-    unsigned int* d_contracted_creature_indices;
-
+    int* h_creatures_n = new int(INITIAL_CREATURE_N);
+    int* d_creatures_n;
     CUDA_CHECK(cudaMalloc(&d_creatures_n, sizeof(int)));
     CUDA_CHECK(cudaMemcpy(d_creatures_n, h_creatures_n, sizeof(int), cudaMemcpyHostToDevice));
 
-    CUDA_CHECK(cudaMalloc(&d_creature_x, max_creature_n * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_y, max_creature_n * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_alive, max_creature_n * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_energy, max_creature_n * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_matrix, max_creature_n * 6 * 6 * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_bias, max_creature_n * 6 * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creatures_by_action, max_creature_n * 6 * sizeof(int)));
+    // we define everything twice in order to play ping-pong
+    // features of creatures
+    unsigned int* d_creature_x_alpha;
+    unsigned int* d_creature_x_beta;
+    CUDA_CHECK(cudaMalloc(&d_creature_x_alpha, MAX_CREATURE_N * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_creature_x_beta, MAX_CREATURE_N * sizeof(unsigned int)));
+    unsigned int* d_creature_x = d_creature_x_alpha; // ping-pong pointer
+    unsigned int* d_creature_x_save = d_creature_x_beta; // for contraction step
+
+
+    unsigned int* d_creature_y_alpha;
+    unsigned int* d_creature_y_beta;
+    CUDA_CHECK(cudaMalloc(&d_creature_y_alpha, MAX_CREATURE_N * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_creature_y_beta, MAX_CREATURE_N * sizeof(unsigned int)));
+    unsigned int* d_creature_y = d_creature_y_alpha; // ping-pong pointer
+    unsigned int* d_creature_y_save = d_creature_y_beta; // for contraction step
+
+    float* d_creature_energy_alpha;
+    float* d_creature_energy_beta;
+    CUDA_CHECK(cudaMalloc(&d_creature_energy_alpha, MAX_CREATURE_N * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_creature_energy_beta, MAX_CREATURE_N * sizeof(float)));
+    float* d_creature_energy = d_creature_energy_alpha; // ping-pong pointer
+    float* d_creature_energy_save = d_creature_energy_beta; // for contraction step
+
+    float* d_creature_matrix_alpha;
+    float* d_creature_matrix_beta;
+    CUDA_CHECK(cudaMalloc(&d_creature_matrix_alpha, MAX_CREATURE_N * 6 * 6 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_creature_matrix_beta, MAX_CREATURE_N * 6 * 6 * sizeof(float)));
+    float* d_creature_matrix = d_creature_matrix_alpha; // ping-pong pointer
+    float* d_creature_matrix_save = d_creature_matrix_beta; // for contraction step
+
+
+    float* d_creature_bias_alpha;
+    float* d_creature_bias_beta;
+    CUDA_CHECK(cudaMalloc(&d_creature_bias_alpha, MAX_CREATURE_N * 6 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_creature_bias_beta, MAX_CREATURE_N * 6 * sizeof(float)));
+    float* d_creature_bias = d_creature_bias_alpha; // ping-pong pointer
+    float* d_creature_bias_save = d_creature_bias_beta; // for contraction step
+
+    // Actions
+    int* h_action_counts = new int[6];
+    int* d_action_counts;
+    int* d_creatures_by_action;
+    CUDA_CHECK(cudaMalloc(&d_creatures_by_action, MAX_CREATURE_N * 6 * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_action_counts, 6 * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_contracted_creature_indices, max_creature_n * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemset(d_creature_alive, 1, *h_creatures_n * sizeof(unsigned int)));
+
+    // For contraction step
+    int* d_creature_alive;
+    int* d_contracted_creature_indices;
+    CUDA_CHECK(cudaMalloc(&d_creature_alive, MAX_CREATURE_N * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_contracted_creature_indices, MAX_CREATURE_N * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_creature_alive, 1, *h_creatures_n * sizeof(int)));
 
     
-    // we will use this on the host to reset action counts before each step
-    int* h_action_counts = new int[6];
-    float* h_creature_energy = new float[max_creature_n];
-
-
-
     // Randomness source
     curandState* d_random_states;
-    CUDA_CHECK(cudaMalloc(&d_random_states, max_creature_n * sizeof(curandState)));
+    CUDA_CHECK(cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState)));
 
     #ifdef ENABLE_DISPLAY
     // Displaying
@@ -466,10 +530,11 @@ int main() {
     #endif
 
     printf("Initializing random states...\n");
-    initialize_random_states<<<(max_creature_n + 255) / 256, 256>>>(
+    initialize_random_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(
         d_random_states, 
-        max_creature_n
+        MAX_CREATURE_N
     );
+    
     cudaDeviceSynchronize();
 
     printf("Initializing map...\n");
@@ -494,7 +559,6 @@ int main() {
         d_creature_energy, 
         d_random_states, 
         *h_creatures_n,
-        max_creature_n, 
         map_width, 
         map_height, 
         d_map,
@@ -506,7 +570,7 @@ int main() {
 
     //main loop
     bool running = true;
-    int t = 0;
+    int t = 1;
     while (running) {
 
         CUDA_CHECK(cudaMemset(d_action_counts, 0, 6 * sizeof(int)));
@@ -516,7 +580,6 @@ int main() {
             d_creature_y,
             d_creature_energy,
             *h_creatures_n,
-            max_creature_n,
             map_width,
             map_height,
             d_map,
@@ -528,88 +591,95 @@ int main() {
             d_random_states
         );
 
+
         cudaDeviceSynchronize();
         CUDA_CHECK(cudaMemcpy(h_action_counts, d_action_counts, 6 * sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(h_creature_energy, d_creature_energy, max_creature_n * sizeof(float), cudaMemcpyDeviceToHost));
         cudaDeviceSynchronize();
         std::cout << "All creatures: " << *h_creatures_n << " Action counts: ";
         for (int i = 0; i < 6; i++) {
             std::cout << h_action_counts[i] << " ";
         }
         std::cout << std::endl;
-        // std::cout << "Max energy: " << *std::max_element(h_creature_energy, h_creature_energy + creatures_n) << std::endl;
 
-        move_right<<<(h_action_counts[2] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_creatures_by_action,
-            d_action_counts
-        );
-        move_left<<<(h_action_counts[3] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_creatures_by_action,
-            d_action_counts
-        );
-        move_down<<<(h_action_counts[4] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_creatures_by_action,
-            d_action_counts
-        );
-        move_up<<<(h_action_counts[5] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_creatures_by_action,
-            d_action_counts
-        );
+        if (h_action_counts[2] > 0) {
+            move_right<<<(h_action_counts[2] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                map_width,
+                map_height,
+                d_creatures_by_action,
+                d_action_counts
+            );
+        }
 
-        eat_food<<<(h_action_counts[0] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            d_creature_energy,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_map,
-            d_creatures_by_action,
-            d_action_counts
-        );
+        if (h_action_counts[3] > 0) {
+            move_left<<<(h_action_counts[3] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                map_width,
+                map_height,
+                d_creatures_by_action,
+                d_action_counts
+            );
+        }
 
-        reproduce<<<(h_action_counts[1] + 255) / 256, 256>>>(
-            d_creature_x,
-            d_creature_y,
-            d_creature_energy,
-            d_creatures_n,
-            max_creature_n,
-            map_width,
-            map_height,
-            d_map,
-            d_creature_matrix,
-            d_creature_bias,
-            d_creatures_by_action,
-            d_action_counts,
-            d_creature_alive,
-            d_random_states
-        );
+        if (h_action_counts[4] > 0) {
+            move_down<<<(h_action_counts[4] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                map_width,
+                map_height,
+                d_creatures_by_action,
+                d_action_counts
+            );
+        }
+
+        if (h_action_counts[5] > 0) {
+            move_up<<<(h_action_counts[5] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                map_width,
+                map_height,
+                d_creatures_by_action,
+                d_action_counts
+            );
+        }
+
+        if (h_action_counts[0] > 0) {
+            eat_food<<<(h_action_counts[0] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                d_creature_energy,
+                map_width,
+                map_height,
+                d_map,
+                d_creatures_by_action,
+                d_action_counts
+            );
+        }
+
+        if (h_action_counts[1] > 0) {
+            reproduce<<<(h_action_counts[1] + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                d_creature_energy,
+                d_creatures_n,
+                map_width,
+                map_height,
+                d_map,
+                d_creature_matrix,
+                d_creature_bias,
+                d_creatures_by_action,
+                d_action_counts,
+                d_creature_alive,
+                d_random_states
+            );
+        }
+
 
         cudaDeviceSynchronize();
 
         CUDA_CHECK(cudaMemcpy(h_creatures_n, d_creatures_n, sizeof(int), cudaMemcpyDeviceToHost));
-
-        cudaDeviceSynchronize();
 
         // for display purposes
         remove_creatures_from_map<<<(map_width * map_height + 255) / 256, 256>>>(
@@ -625,14 +695,11 @@ int main() {
             d_creature_x,
             d_creature_y,
             *h_creatures_n,
-            max_creature_n,
             map_width,
             map_height,
             d_creature_energy,
             d_creature_alive
         );
-
-        cudaDeviceSynchronize();
 
         place_food<<<(map_width * map_height + 255) / 256, 256>>>(
             d_map,
@@ -644,16 +711,46 @@ int main() {
 
         cudaDeviceSynchronize();
 
-        if (!(t % 100)) {
+
+        if (!(t % 200)) {
+
             thrust::device_ptr<int> dev_flags(d_creature_alive);
             thrust::device_ptr<int> dev_indices(d_contracted_creature_indices);
             thrust::exclusive_scan(thrust::device, dev_flags, dev_flags + *h_creatures_n, dev_indices);
-            int last_flag = 0;
-            CUDA_CHECK(cudaMemcpy(&last_flag, d_creature_alive + *h_creatures_n - 1, sizeof(int), cudaMemcpyDeviceToHost));
-            int last_index = 0;
-            CUDA_CHECK(cudaMemcpy(&last_index, d_contracted_creature_indices + *h_creatures_n - 1, sizeof(int), cudaMemcpyDeviceToHost));
-            int contracted_creature_n = last_flag + last_index;
-            std::cout << "Contracted creature count: " << contracted_creature_n << std::endl;
+
+
+            cudaDeviceSynchronize();
+
+            contract<<<(*h_creatures_n + 255) / 256, 256>>>(
+                d_creature_x,
+                d_creature_y,
+                d_creature_energy,
+                d_creature_matrix,
+                d_creature_bias,
+                d_creature_x_save,
+                d_creature_y_save,
+                d_creature_energy_save,
+                d_creature_matrix_save,
+                d_creature_bias_save,
+                d_contracted_creature_indices,
+                d_creature_alive,
+                *h_creatures_n
+            );
+
+
+            int* last_creature_alive = new int[1];
+
+            CUDA_CHECK(cudaMemcpy(last_creature_alive, &d_creature_alive[*h_creatures_n - 1], sizeof(int), cudaMemcpyDeviceToHost));
+            *h_creatures_n = dev_indices[*h_creatures_n - 1] + last_creature_alive[0];
+            CUDA_CHECK(cudaMemcpy(d_creatures_n, h_creatures_n, sizeof(int), cudaMemcpyHostToDevice));
+
+            std::swap(d_creature_x, d_creature_x_save);
+            std::swap(d_creature_y, d_creature_y_save);
+            std::swap(d_creature_energy, d_creature_energy_save);
+            std::swap(d_creature_matrix, d_creature_matrix_save);
+            std::swap(d_creature_bias, d_creature_bias_save);
+
+            cudaDeviceSynchronize();
         }
 
         #ifdef ENABLE_DISPLAY
@@ -662,6 +759,8 @@ int main() {
         if(display.shouldClose()){
             running = false;
         }
+
+        cudaDeviceSynchronize();
         #endif
 
         if (interrupted) {
