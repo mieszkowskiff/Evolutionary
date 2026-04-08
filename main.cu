@@ -13,11 +13,12 @@
 #endif
 
 #define INITIAL_FOOD_SPAWN_RATE 0.07f
-#define FOOD_SPAWN_RATE 0.0001f
+#define FOOD_SPAWN_RATE 0.0004f
 #define INITIAL_CREATURE_ENERGY 1
 #define COST_OF_LIVING 0.01f
-#define INITIAL_CREATURE_N 2048
-#define MAX_CREATURE_N 1024 * 1024
+#define INITIAL_CREATURE_N 64
+#define MAX_CREATURE_N 1024 * 1024 * 2
+#define MAX_PARAMETER_VALUE 5.0f
 
 // bit flags for map cells
 #define   BIT_FOOD 0
@@ -360,10 +361,12 @@ __global__ void reproduce(
     creature_energy[new_creature_idx] = parent_energy / 2.0f; // Split energy between parent and offspring
     creature_energy[parent_idx] = parent_energy / 2.0f;
     for(int i = 0; i < 6 * 6; i++) {
-        creature_matrix[new_creature_idx + i * MAX_CREATURE_N] = creature_matrix[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy weights
+        creature_matrix[new_creature_idx + i * MAX_CREATURE_N] = 
+        max(-MAX_PARAMETER_VALUE, min(MAX_PARAMETER_VALUE, creature_matrix[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f)); // Copy weights
     }
     for(int i = 0; i < 6; i++) {
-        creature_bias[new_creature_idx + i * MAX_CREATURE_N] = creature_bias[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f; // Copy biases
+        creature_bias[new_creature_idx + i * MAX_CREATURE_N] = 
+        max(-MAX_PARAMETER_VALUE, min(MAX_PARAMETER_VALUE, creature_bias[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f)); // Copy biases
     }
     
 }
