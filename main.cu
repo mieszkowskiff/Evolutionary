@@ -99,10 +99,18 @@ __global__ void place_food(
     float food_spawn_rate
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= map_width * map_height) return;
+    if (idx >= (int)(map_width * map_height * food_spawn_rate)) return;
 
-    float rand_val = curand_uniform(&random_states[idx]);
-    map[idx] |= (rand_val < food_spawn_rate ? 1 << BIT_FOOD : 0);
+    int rand_x = (int)(curand_uniform(&random_states[idx]) * map_width);
+    int rand_y = (int)(curand_uniform(&random_states[idx]) * map_height);
+
+    rand_x = min(rand_x, map_width - 1);
+    rand_y = min(rand_y, map_height - 1);
+
+    //here we can add logic to rebalance food distribution
+
+
+    map[get_cell_index(rand_x, rand_y, map_width, map_height)] |= (1u << BIT_FOOD); // Set food bit
 }
 
 __global__ void initialize_creatures(
@@ -319,11 +327,14 @@ __global__ void eat_food(
 
     int cell_index = get_cell_index(x, y, map_width, map_height);
 
-    // Here we should do it more carefully, maybe atomically, but for now ambiguity is ok
     if (map[cell_index] & (1 << BIT_FOOD)) {
+    unsigned int food_bit = (1 << BIT_FOOD);
+    unsigned int old_val = atomicAnd(&map[cell_index], ~food_bit);
+
+    if (old_val & food_bit) {
         creature_energy[creature_idx] = 1.0f;
-        map[cell_index] &= ~(1 << BIT_FOOD);
     }
+}
 }
 
 __global__ void reproduce(
@@ -542,7 +553,7 @@ int main() {
     printf("Initializing map...\n");
 
 
-    place_food<<<(map_width * map_height + 255) / 256, 256>>>(
+    place_food<<<((int)(map_width * map_height * INITIAL_FOOD_SPAWN_RATE) + 255) / 256, 256>>>(
         d_map, 
         d_random_states, 
         map_width, 
@@ -574,7 +585,7 @@ int main() {
     bool running = true;
     int max_creature_in_simulation = 0;
     int t = 1;
-    while (running) {
+    while (t < 100 && running) {
 
         CUDA_CHECK(cudaMemset(d_action_counts, 0, 6 * sizeof(int)));
         size_t shared_memory_size = 256 * 6 * 2 * sizeof(float); // 256 threads, 6 inputs + 6 outputs per creature
@@ -598,11 +609,11 @@ int main() {
         cudaDeviceSynchronize();
         CUDA_CHECK(cudaMemcpy(h_action_counts, d_action_counts, 6 * sizeof(int), cudaMemcpyDeviceToHost));
         cudaDeviceSynchronize();
-        std::cout << "All creatures: " << *h_creatures_n << " Action counts: ";
-        for (int i = 0; i < 6; i++) {
-            std::cout << h_action_counts[i] << " ";
-        }
-        std::cout << std::endl;
+        // std::cout << "All creatures: " << *h_creatures_n << " Action counts: ";
+        // for (int i = 0; i < 6; i++) {
+        //     std::cout << h_action_counts[i] << " ";
+        // }
+        // std::cout << std::endl;
 
         if (h_action_counts[2] > 0) {
             move_right<<<(h_action_counts[2] + 255) / 256, 256>>>(
@@ -707,7 +718,7 @@ int main() {
             d_creature_alive
         );
 
-        place_food<<<(map_width * map_height + 255) / 256, 256>>>(
+        place_food<<<((int)(map_width * map_height * FOOD_SPAWN_RATE) + 255) / 256, 256>>>(
             d_map,
             d_random_states,
             map_width,
