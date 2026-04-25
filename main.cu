@@ -6,23 +6,14 @@
 #include <thrust/scan.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
-
+#include "utils/utils.cuh"
+#include "actions/actions.cuh"
+#include "constants.h"
 
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
 #endif
 
-#define INITIAL_FOOD_SPAWN_RATE 0.07f
-#define FOOD_SPAWN_RATE 0.0004f
-#define INITIAL_CREATURE_ENERGY 1
-#define COST_OF_LIVING 0.01f
-#define INITIAL_CREATURE_N 64
-#define MAX_CREATURE_N 1024 * 1024 * 2
-#define MAX_PARAMETER_VALUE 5.0f
-
-// bit flags for map cells
-#define   BIT_FOOD 0
-#define   BIT_CREATURE 1
 
 // # define ENERGY_LEVEL_SENSOR 0
 // # define FOOD_PRESENCE_HERE_SENSOR 1
@@ -72,24 +63,7 @@ __global__ void initialize_random_states(curandState* random_states, int num_sta
 
 
 
-__device__ int get_cell_index(int x, int y, int map_width, int map_height) {
-    int nx = x;
-    int ny = y;
 
-    if (nx < 0) {
-        nx += map_width;
-    } else if (nx >= map_width) {
-        nx -= map_width;
-    }
-
-    if (ny < 0) {
-        ny += map_height;
-    } else if (ny >= map_height) {
-        ny -= map_height;
-    }
-
-    return ny * map_width + nx;
-}
 
 __global__ void place_food(
     unsigned int* map,
@@ -240,149 +214,6 @@ __global__ void creature_action_step(
     creature_by_actions[action * MAX_CREATURE_N + creature_index] = idx;
 }
 
-__global__ void move_right(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    int map_width,
-    int map_height,
-    int* creature_by_actions,
-    int* action_counts
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[2]) return;
-    int new_x = creature_x[creature_by_actions[2 * MAX_CREATURE_N + idx]] + 1;
-    if (new_x >= map_width) {
-        new_x -= map_width;
-    }
-    creature_x[creature_by_actions[2 * MAX_CREATURE_N + idx]] = new_x;
-}
-
-__global__ void move_left(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    int map_width,
-    int map_height,
-    int* creature_by_actions,
-    int* action_counts
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[3]) return;
-    int new_x = creature_x[creature_by_actions[3 * MAX_CREATURE_N + idx]] - 1;
-    if (new_x < 0) {
-        new_x += map_width;
-    }
-    creature_x[creature_by_actions[3 * MAX_CREATURE_N + idx]] = new_x;
-}
-
-__global__ void move_down(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    int map_width,
-    int map_height,
-    int* creature_by_actions,
-    int* action_counts
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[4]) return;
-    int new_y = creature_y[creature_by_actions[4 * MAX_CREATURE_N + idx]] + 1;
-    if (new_y >= map_height) {
-        new_y -= map_height;
-    }
-    creature_y[creature_by_actions[4 * MAX_CREATURE_N + idx]] = new_y;
-}
-
-__global__ void move_up(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    int map_width,
-    int map_height,
-    int* creature_by_actions,
-    int* action_counts
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[5]) return;
-    int new_y = creature_y[creature_by_actions[5 * MAX_CREATURE_N + idx]] - 1;
-    if (new_y < 0) {
-        new_y += map_height;
-    }
-    creature_y[creature_by_actions[5 * MAX_CREATURE_N + idx]] = new_y;
-}
-
-__global__ void eat_food(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    float* creature_energy,
-    int map_width,
-    int map_height,
-    unsigned int* map,
-    int* creature_by_actions,
-    int* action_counts
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[0]) return;
-
-    int creature_idx = creature_by_actions[0 * MAX_CREATURE_N + idx];
-    int x = creature_x[creature_idx];
-    int y = creature_y[creature_idx];
-
-    int cell_index = get_cell_index(x, y, map_width, map_height);
-
-    if (map[cell_index] & (1 << BIT_FOOD)) {
-    unsigned int food_bit = (1 << BIT_FOOD);
-    unsigned int old_val = atomicAnd(&map[cell_index], ~food_bit);
-
-    if (old_val & food_bit) {
-        creature_energy[creature_idx] = 1.0f;
-    }
-}
-}
-
-__global__ void reproduce(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    float* creature_energy,
-    int* creature_n,
-    int map_width,
-    int map_height,
-    unsigned int* map,
-    float* creature_matrix,
-    float* creature_bias,
-    int* creature_by_actions,
-    int* action_counts,
-    int* creature_alive,
-    curandState* random_states
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= action_counts[1]) return;
-
-    int new_creature_idx = atomicAdd(creature_n, 1);
-
-    if (new_creature_idx >= MAX_CREATURE_N) {
-        return; // No more space for new creatures, skip reproduction
-    }
-
-    int parent_idx = creature_by_actions[1 * MAX_CREATURE_N + idx];
-
-    creature_x[new_creature_idx] = creature_x[parent_idx];
-    creature_y[new_creature_idx] = creature_y[parent_idx];
-
-    creature_alive[new_creature_idx] = 1;
-
-    float parent_energy = creature_energy[parent_idx];
-    creature_energy[new_creature_idx] = parent_energy / 2.0f; // Split energy between parent and offspring
-    creature_energy[parent_idx] = parent_energy / 2.0f;
-    for(int i = 0; i < 6 * 6; i++) {
-        creature_matrix[new_creature_idx + i * MAX_CREATURE_N] = 
-        max(-MAX_PARAMETER_VALUE, min(MAX_PARAMETER_VALUE, creature_matrix[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f)); // Copy weights
-    }
-    for(int i = 0; i < 6; i++) {
-        creature_bias[new_creature_idx + i * MAX_CREATURE_N] = 
-        max(-MAX_PARAMETER_VALUE, min(MAX_PARAMETER_VALUE, creature_bias[parent_idx + i * MAX_CREATURE_N] + curand_uniform(&random_states[new_creature_idx]) * 0.1f)); // Copy biases
-    }
-    
-}
-
-
 __global__ void remove_creatures_from_map(
     unsigned int* map,
     int width,
@@ -414,11 +245,6 @@ __global__ void place_creatures_on_map(
     int y = creature_y[idx];
 
     atomicOr(&map[get_cell_index(x, y, map_width, map_height)], 1 << BIT_CREATURE);
-
-    atomicOr(&map[get_cell_index(x + 1, y, map_width, map_height)], 1 << BIT_CREATURE);
-    atomicOr(&map[get_cell_index(x - 1, y, map_width, map_height)], 1 << BIT_CREATURE);
-    atomicOr(&map[get_cell_index(x, y + 1, map_width, map_height)], 1 << BIT_CREATURE);
-    atomicOr(&map[get_cell_index(x, y - 1, map_width, map_height)], 1 << BIT_CREATURE);
 }
 
 
@@ -585,7 +411,7 @@ int main() {
     bool running = true;
     int max_creature_in_simulation = 0;
     int t = 1;
-    while (t < 100 && running) {
+    while (t < 100000 && running) {
 
         CUDA_CHECK(cudaMemset(d_action_counts, 0, 6 * sizeof(int)));
         size_t shared_memory_size = 256 * 6 * 2 * sizeof(float); // 256 threads, 6 inputs + 6 outputs per creature
@@ -732,7 +558,7 @@ int main() {
             printf("All creatures died. Ending simulation.\n");
             break;
         }
-        if (!(t % 200)) {
+        if (!(t % 5)) {
             
             thrust::device_ptr<int> dev_flags(d_creature_alive);
             thrust::device_ptr<int> dev_indices(d_contracted_creature_indices);

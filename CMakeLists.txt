@@ -18,7 +18,14 @@ if(ENABLE_DISPLAY)
     find_package(glfw3 REQUIRED)
     find_package(GLEW REQUIRED)
 
-    add_executable(Evolutionary main.cu display/renderer.cu)
+    add_executable(Evolutionary 
+        main.cu 
+        display/renderer.cu
+        utils/utils.cu
+        actions/actions.cu
+    )
+
+    set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
     target_link_libraries(Evolutionary PRIVATE 
         CUDA::cudart
@@ -32,7 +39,13 @@ if(ENABLE_DISPLAY)
 else()
     message(STATUS "GUI Display is DISABLED (Headless mode). Skipping OpenGL.")
     
-    add_executable(Evolutionary main.cu)
+        add_executable(Evolutionary 
+        main.cu 
+        utils/utils.cu
+        actions/actions.cu
+    )
+
+    set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
     target_link_libraries(Evolutionary PRIVATE 
         CUDA::cudart
@@ -40,5 +53,6 @@ else()
     )
 endif()
 
-target_include_directories(Evolutionary PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/display)
+target_include_directories(Evolutionary PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 target_compile_options(Evolutionary PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -g -G>)
