@@ -6,7 +6,6 @@
 
 class Networks {
     public:
-    int8_t* hidden_neurons_n;
     int8_t* output_neurons_n;
     __nv_fp8_e4m3* first_matrix;
     __nv_fp8_e4m3* second_matrix;
@@ -15,11 +14,16 @@ class Networks {
     __nv_fp8_e4m3* hidden_neuron_values;
     __nv_fp8_e4m3* output_neuron_values;
 
-    Networks(int8_t* input_neurons_n, int8_t* output_neurons_n, int creature_n);
+    Networks(curandState* state, int creatures_n);
     ~Networks();
 
-    private:
     __device__ void AddRandomNetwork(int creature_index, curandState &state);
 };
+
+__global__ void InitializeRandomNetworks(Networks* networks, int creatures_n, curandState* states);
+
+__device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx);
+
+__device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx);
 
 # endif

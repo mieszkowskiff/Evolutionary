@@ -8,9 +8,9 @@
 #include <thrust/execution_policy.h>
 #include <unistd.h>
 #include "constants.h"
-#include "action_step/action_step.cuh"
-#include "contract/contract.cuh"
-#include "initialization/initialization.cuh"
+#include "creatures/creatures.cuh"
+#include "map/map.cuh"
+#include "randomness/randomness.cuh"
 
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
@@ -20,8 +20,6 @@
     if(cudaStatus != cudaSuccess)                                   \
         std::cout << cudaGetErrorString(cudaStatus) << std::endl;   \
 
-
-
 volatile std::sig_atomic_t interrupted = 0;
 
 extern "C" void signal_handler(int signum) {
@@ -29,186 +27,17 @@ extern "C" void signal_handler(int signum) {
 }
 
 int main() {
-    struct sigaction action;
-    action.sa_handler = signal_handler;
-    sigemptyset(&action.sa_mask);
-    action.sa_flags = 0;
-    sigaction(SIGINT, &action, NULL);
-
-    printf("Starting simulation...\n");
-
-    // Map
-    int map_width = 1024;
-    int map_height = 1024;
-
-    unsigned int* d_map; // d_map is considered as a bit vector (see CellFlags)
-    CUDA_CHECK(cudaMalloc(&d_map, map_width * map_height * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemset(d_map, 0, map_width * map_height * sizeof(unsigned int)));
-
-    // Creatures
-    int* h_creatures_n = new int(INITIAL_CREATURE_N);
-    int* d_creatures_n;
-    CUDA_CHECK(cudaMalloc(&d_creatures_n, sizeof(int)));
-    CUDA_CHECK(cudaMemcpy(d_creatures_n, h_creatures_n, sizeof(int), cudaMemcpyHostToDevice));
-
-    // we define everything twice in order to play ping-pong
-    // features of creatures
-    unsigned int* d_creature_x_alpha;
-    unsigned int* d_creature_x_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_x_alpha, MAX_CREATURE_N * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_x_beta, MAX_CREATURE_N * sizeof(unsigned int)));
-    unsigned int* d_creature_x = d_creature_x_alpha; // ping-pong pointer
-    unsigned int* d_creature_x_save = d_creature_x_beta; // for contraction step
-
-    unsigned int* d_creature_y_alpha;
-    unsigned int* d_creature_y_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_y_alpha, MAX_CREATURE_N * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_y_beta, MAX_CREATURE_N * sizeof(unsigned int)));
-    unsigned int* d_creature_y = d_creature_y_alpha; // ping-pong pointer
-    unsigned int* d_creature_y_save = d_creature_y_beta; // for contraction step
-
-    float* d_creature_energy_alpha;
-    float* d_creature_energy_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_energy_alpha, MAX_CREATURE_N * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_energy_beta, MAX_CREATURE_N * sizeof(float)));
-    float* d_creature_energy = d_creature_energy_alpha; // ping-pong pointer
-    float* d_creature_energy_save = d_creature_energy_beta; // for contraction step
-
-    int* d_creature_sensor_x_alpha;
-    int* d_creature_sensor_x_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_x_alpha, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_x_beta, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    int* d_creature_sensor_x = d_creature_sensor_x_alpha; // ping-pong pointer
-    int* d_creature_sensor_x_save = d_creature_sensor_x_beta; // for contraction step
-
-    int* d_creature_sensor_y_alpha;
-    int* d_creature_sensor_y_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_y_alpha, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_y_beta, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    int* d_creature_sensor_y = d_creature_sensor_y_alpha; // ping-pong pointer
-    int* d_creature_sensor_y_save = d_creature_sensor_y_beta; // for contraction step
-
-    int *d_creature_sensor_type_alpha;
-    int *d_creature_sensor_type_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_type_alpha, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_type_beta, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(int)));
-    int* d_creature_sensor_type = d_creature_sensor_type_alpha; // ping-pong pointer
-    int* d_creature_sensor_type_save = d_creature_sensor_type_beta; // for contraction step
-
-    int *d_creature_sensors_n_alpha;
-    int *d_creature_sensors_n_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_sensors_n_alpha, MAX_CREATURE_N * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_sensors_n_beta, MAX_CREATURE_N * sizeof(int)));
-    int* d_creature_sensors_n = d_creature_sensors_n_alpha; // ping-pong pointer
-    int* d_creature_sensors_n_save = d_creature_sensors_n_beta; // for contraction step
-
-    int *d_creature_hidden_neurons_n_alpha;
-    int *d_creature_hidden_neurons_n_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_neurons_n_alpha, MAX_CREATURE_N * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_neurons_n_beta, MAX_CREATURE_N * sizeof(int)));
-    int* d_creature_hidden_neurons_n = d_creature_hidden_neurons_n_alpha; // ping-pong pointer
-    int* d_creature_hidden_neurons_n_save = d_creature_hidden_neurons_n_beta; // for contraction step
-
-    float* d_creature_hidden_layer_matrix_alpha;
-    float* d_creature_hidden_layer_matrix_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_layer_matrix_alpha, MAX_CREATURE_N * MAX_HIDDEN_NEURONS * MAX_INPUT_NEURONS * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_layer_matrix_beta, MAX_CREATURE_N * MAX_HIDDEN_NEURONS * MAX_INPUT_NEURONS * sizeof(float)));
-    float* d_creature_hidden_layer_matrix = d_creature_hidden_layer_matrix_alpha; // ping-pong pointer
-    float* d_creature_hidden_layer_matrix_save = d_creature_hidden_layer_matrix_beta; // for contraction step
-
-    float* d_creature_output_layer_matrix_alpha;
-    float* d_creature_output_layer_matrix_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_output_layer_matrix_alpha, MAX_CREATURE_N * OUTPUT_NEURONS * MAX_HIDDEN_NEURONS * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_output_layer_matrix_beta, MAX_CREATURE_N * OUTPUT_NEURONS * MAX_HIDDEN_NEURONS * sizeof(float)));
-    float* d_creature_output_layer_matrix = d_creature_output_layer_matrix_alpha; // ping-pong pointer
-    float* d_creature_output_layer_matrix_save = d_creature_output_layer_matrix_beta; // for contraction step
-
-    float* d_creature_hidden_layer_bias_alpha;
-    float* d_creature_hidden_layer_bias_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_layer_bias_alpha, MAX_CREATURE_N * MAX_HIDDEN_NEURONS * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_layer_bias_beta, MAX_CREATURE_N * MAX_HIDDEN_NEURONS * sizeof(float)));
-    float* d_creature_hidden_layer_bias = d_creature_hidden_layer_bias_alpha; // ping-pong pointer
-    float* d_creature_hidden_layer_bias_save = d_creature_hidden_layer_bias_beta; // for contraction step
-
-    float* d_creature_output_layer_bias_alpha;
-    float* d_creature_output_layer_bias_beta;
-    CUDA_CHECK(cudaMalloc(&d_creature_output_layer_bias_alpha, MAX_CREATURE_N * OUTPUT_NEURONS * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_creature_output_layer_bias_beta, MAX_CREATURE_N * OUTPUT_NEURONS * sizeof(float)));
-    float* d_creature_output_layer_bias = d_creature_output_layer_bias_alpha; // ping-pong pointer
-    float* d_creature_output_layer_bias_save = d_creature_output_layer_bias_beta; // for contraction step
-
-    // Sensor values
-    float* d_creature_sensor_values;
-    CUDA_CHECK(cudaMalloc(&d_creature_sensor_values, MAX_CREATURE_N * MAX_INPUT_NEURONS * sizeof(float)));
-
-    // Hidden layer neuron values
-    float * d_creature_hidden_layer_neuron_values;
-    CUDA_CHECK(cudaMalloc(&d_creature_hidden_layer_neuron_values, MAX_CREATURE_N * MAX_HIDDEN_NEURONS * sizeof(float)));
-
-    // Actions
-    int* h_action_counts = new int[ACTIONS_N];
-    int* d_action_counts;
-    int* d_creatures_by_action;
-    CUDA_CHECK(cudaMalloc(&d_creatures_by_action, MAX_CREATURE_N * ACTIONS_N * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_action_counts, ACTIONS_N * sizeof(int)));
-
-    // For contraction step
-    int* d_creature_alive;
-    int* d_contracted_creature_indices;
-    CUDA_CHECK(cudaMalloc(&d_creature_alive, MAX_CREATURE_N * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_contracted_creature_indices, MAX_CREATURE_N * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_creature_alive, 1, *h_creatures_n * sizeof(int)));
-
-    
-    // Randomness source
     curandState* d_random_states;
-    CUDA_CHECK(cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState)));
+    cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState));
 
-    
+    init_curand_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(d_random_states, 1234);
 
-    #ifdef ENABLE_DISPLAY
-    // Displaying
-    Renderer display(map_width, map_height);
-    #endif
+    Creatures creatures = Creatures(d_random_states, MAX_CREATURE_N);
 
-    initialize_random_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(
-        d_random_states, 
-        MAX_CREATURE_N
-    );
+    cudaFree(d_random_states);
 
-
-    place_food<<<((int)(map_width * map_height * INITIAL_FOOD_SPAWN_RATE) + 255) / 256, 256>>>(
-        d_map, 
-        d_random_states, 
-        map_width, 
-        map_height,
-        INITIAL_FOOD_SPAWN_RATE
-    );
-
-    initialize_creatures<<<(*h_creatures_n + 255) / 256, 256>>>(
-        d_creature_x,
-        d_creature_y,
-        d_creature_energy,
-        d_creature_sensors_n,
-        d_creature_hidden_neurons_n,
-        d_creature_sensor_x,
-        d_creature_sensor_y,
-        d_creature_sensor_type,
-        d_random_states,
-        *h_creatures_n,
-        map_width,
-        map_height
-    );
-
-    cudaDeviceSynchronize();
-
-    //main loop
-    bool running = true;
-    int max_creature_in_simulation = 0;
-    int t = 1;
-    while (t < 100000 && running) {
-
-        CUDA_CHECK(cudaMemset(d_action_counts, 0, 6 * sizeof(int)));
+    return 0;
+};
 
 
 //         cudaDeviceSynchronize();
@@ -470,53 +299,3 @@ int main() {
 
 //     printf("\nQuitting the simulation. Shutting down...\n");
 //     fflush(stdout);
-
-    sleep(20);
-
-    CUDA_CHECK(cudaFree(d_map));
-
-    CUDA_CHECK(cudaFree(d_creature_x_alpha));
-    CUDA_CHECK(cudaFree(d_creature_x_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_y_alpha));
-    CUDA_CHECK(cudaFree(d_creature_y_beta));
-
-
-    CUDA_CHECK(cudaFree(d_creature_energy_alpha));
-    CUDA_CHECK(cudaFree(d_creature_energy_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_hidden_layer_matrix_alpha));
-    CUDA_CHECK(cudaFree(d_creature_hidden_layer_matrix_beta));
-    CUDA_CHECK(cudaFree(d_creature_output_layer_matrix_alpha));
-    CUDA_CHECK(cudaFree(d_creature_output_layer_matrix_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_sensors_n_alpha));
-    CUDA_CHECK(cudaFree(d_creature_sensors_n_beta));
-    CUDA_CHECK(cudaFree(d_creature_hidden_neurons_n_alpha));
-    CUDA_CHECK(cudaFree(d_creature_hidden_neurons_n_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_hidden_layer_bias_alpha));
-    CUDA_CHECK(cudaFree(d_creature_hidden_layer_bias_beta));
-    CUDA_CHECK(cudaFree(d_creature_output_layer_bias_alpha));
-    CUDA_CHECK(cudaFree(d_creature_output_layer_bias_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_sensor_x_alpha));
-    CUDA_CHECK(cudaFree(d_creature_sensor_x_beta));
-    CUDA_CHECK(cudaFree(d_creature_sensor_y_alpha));
-    CUDA_CHECK(cudaFree(d_creature_sensor_y_beta));
-    CUDA_CHECK(cudaFree(d_creature_sensor_type_alpha));
-    CUDA_CHECK(cudaFree(d_creature_sensor_type_beta));
-
-    CUDA_CHECK(cudaFree(d_creature_sensor_values));
-    CUDA_CHECK(cudaFree(d_creature_hidden_layer_neuron_values));
-
-    CUDA_CHECK(cudaFree(d_random_states));
-    CUDA_CHECK(cudaFree(d_creatures_by_action));
-    CUDA_CHECK(cudaFree(d_action_counts));
-    CUDA_CHECK(cudaFree(d_creatures_n));
-    CUDA_CHECK(cudaFree(d_creature_alive));
-    CUDA_CHECK(cudaFree(d_contracted_creature_indices));
-
-    //printf("Maximum creatures in simulation: %d\n", max_creature_in_simulation);
-    return 0;
-}

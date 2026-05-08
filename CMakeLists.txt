@@ -19,10 +19,13 @@ if(ENABLE_DISPLAY)
     find_package(GLEW REQUIRED)
 
     add_executable(Evolutionary 
-        main.cu 
-        display/renderer.cu
-        utils/utils.cu
-        actions/actions.cu
+        main.cu
+        creatures/creatures.cu
+        creatures/actions.cu
+        creatures/networks.cu
+        creatures/sensors.cu
+        map/map.cu
+        randomness/randomness.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -41,8 +44,12 @@ else()
     
         add_executable(Evolutionary 
         main.cu 
-        utils/utils.cu
-        actions/actions.cu
+        creatures/creatures.cu
+        creatures/actions.cu
+        creatures/networks.cu
+        creatures/sensors.cu
+        map/map.cu
+        randomness/randomness.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

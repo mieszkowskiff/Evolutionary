@@ -20,9 +20,12 @@ class Creatures {
     Networks networks;
     Actions actions;
 
-    
+    Creatures(curandState* state, int count);
+    ~Creatures();
 
 };
+
+__global__ void InitializeRandomCreatures(Creatures* creatures, curandState* states);
 
 
 # endif

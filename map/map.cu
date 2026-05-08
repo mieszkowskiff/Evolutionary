@@ -1,10 +1,9 @@
 #include "map.cuh"
+#include "constants.h"
 
-Map::Map(int width, int height) {
-    this->width = width;
-    this->height = height;
+Map::Map() {
 
-    size_t bytes = width * height * sizeof(__nv_fp8_e4m3);
+    size_t bytes = WIDTH * HEIGHT * sizeof(__nv_fp8_e4m3);
 
     cudaMalloc(&food, bytes);
     cudaMalloc(&danger, bytes);
@@ -21,36 +20,36 @@ Map::~Map() {
     cudaFree(creature);
 }
 
-int Map::get_cell_index(int x, int y) {
+__device__ int Map::get_cell_index(int x, int y) {
     int nx = x;
     int ny = y;
 
     if (nx < 0) {
-        nx += width;
-    } else if (nx >= width) {
-        nx -= width;
+        nx += WIDTH;
+    } else if (nx >= WIDTH) {
+        nx -= WIDTH;
     }
 
     if (ny < 0) {
-        ny += height;
-    } else if (ny >= height) {
-        ny -= height;
+        ny += HEIGHT;
+    } else if (ny >= HEIGHT) {
+        ny -= HEIGHT;
     }
 
-    return ny * width + nx;
+    return ny * WIDTH + nx;
 }
 
-void Map::place_food(int max_food_count, curandState* random_states) {
+__global__ void place_food(Map* map, int max_food_count, curandState* random_states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_food_count) return;
 
-    int rand_x = (int)(curand_uniform(&random_states[idx]) * width);
-    int rand_y = (int)(curand_uniform(&random_states[idx]) * height);
+    int rand_x = (int)(curand_uniform(&random_states[idx]) * WIDTH);
+    int rand_y = (int)(curand_uniform(&random_states[idx]) * HEIGHT);
 
-    food[get_cell_index(rand_x, rand_y)] = (__nv_fp8_e4m3)1.0f;
+    map->food[map->get_cell_index(rand_x, rand_y)] = (__nv_fp8_e4m3)1.0f;
 }
 
-__nv_fp8_e4m3 Map::get_cell(int layer, int index) const {
+__device__ __nv_fp8_e4m3 Map::get_cell(int layer, int index) const {
         switch (layer) {
             case 0: return food[index];
             case 1: return danger[index];
