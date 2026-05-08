@@ -1,26 +1,33 @@
-#include "map.cuh"
+#include "map/map.cuh"
 #include "constants.h"
 
 Map::Map() {
 
     size_t bytes = WIDTH * HEIGHT * sizeof(__nv_fp8_e4m3);
 
-    cudaMalloc(&food, bytes);
-    cudaMalloc(&danger, bytes);
-    cudaMalloc(&creature, bytes);
+    h_data = new MapData;
 
-    cudaMemset(food, 0, bytes);
-    cudaMemset(danger, 0, bytes);
-    cudaMemset(creature, 0, bytes);
+    cudaMalloc(&h_data->food, bytes);
+    cudaMalloc(&h_data->danger, bytes);
+    cudaMalloc(&h_data->creature, bytes);
+
+    cudaMalloc(&d_data, sizeof(MapData));
+    cudaMemcpy(d_data, h_data, sizeof(MapData), cudaMemcpyHostToDevice);
+
+    cudaMemset(h_data->food, 0, bytes);
+    cudaMemset(h_data->danger, 0, bytes);
+    cudaMemset(h_data->creature, 0, bytes);
 }
 
 Map::~Map() {
-    cudaFree(food);
-    cudaFree(danger);
-    cudaFree(creature);
+    cudaFree(h_data->food);
+    cudaFree(h_data->danger);
+    cudaFree(h_data->creature);
+    cudaFree(h_data);
+    delete h_data;
 }
 
-__device__ int Map::get_cell_index(int x, int y) {
+__device__ int get_cell_index(int x, int y) {
     int nx = x;
     int ny = y;
 
@@ -39,21 +46,21 @@ __device__ int Map::get_cell_index(int x, int y) {
     return ny * WIDTH + nx;
 }
 
-__global__ void place_food(Map* map, int max_food_count, curandState* random_states) {
+__global__ void place_food(MapData* map, int max_food_count, curandState* random_states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_food_count) return;
 
     int rand_x = (int)(curand_uniform(&random_states[idx]) * WIDTH);
     int rand_y = (int)(curand_uniform(&random_states[idx]) * HEIGHT);
 
-    map->food[map->get_cell_index(rand_x, rand_y)] = (__nv_fp8_e4m3)1.0f;
+    map->food[get_cell_index(rand_x, rand_y)] = (__nv_fp8_e4m3)1.0f;
 }
 
-__device__ __nv_fp8_e4m3 Map::get_cell(int layer, int index) const {
-        switch (layer) {
-            case 0: return food[index];
-            case 1: return danger[index];
-            case 2: return creature[index];
-            default: return (__nv_fp8_e4m3)0.0f; 
-        }
+__device__ __nv_fp8_e4m3 get_cell(MapData* map, int layer, int index) {
+    switch (layer) {
+        case 0: return map->food[index];
+        case 1: return map->danger[index];
+        case 2: return map->creature[index];
+        default: return (__nv_fp8_e4m3)0.0f; 
     }
+}

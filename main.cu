@@ -16,10 +16,6 @@
 #include "display/renderer.h"
 #endif
 
-#define CUDA_CHECK(cudaStatus)                                      \
-    if(cudaStatus != cudaSuccess)                                   \
-        std::cout << cudaGetErrorString(cudaStatus) << std::endl;   \
-
 volatile std::sig_atomic_t interrupted = 0;
 
 extern "C" void signal_handler(int signum) {
@@ -32,9 +28,24 @@ int main() {
 
     init_curand_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(d_random_states, 1234);
 
+    cudaDeviceSynchronize();
+
     Creatures creatures = Creatures(d_random_states, MAX_CREATURE_N);
 
+    //cudaDeviceSynchronize();
+
+    //Map map = Map();
+
+    cudaDeviceSynchronize();
+
     cudaFree(d_random_states);
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cout << "ERROR: " << cudaGetErrorString(err) << std::endl;
+    } else {
+        std::cout << "No errors found" << std::endl;
+    }
 
     return 0;
 };

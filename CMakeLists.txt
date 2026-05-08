@@ -21,9 +21,6 @@ if(ENABLE_DISPLAY)
     add_executable(Evolutionary 
         main.cu
         creatures/creatures.cu
-        creatures/actions.cu
-        creatures/networks.cu
-        creatures/sensors.cu
         map/map.cu
         randomness/randomness.cu
     )
@@ -45,9 +42,6 @@ else()
         add_executable(Evolutionary 
         main.cu 
         creatures/creatures.cu
-        creatures/actions.cu
-        creatures/networks.cu
-        creatures/sensors.cu
         map/map.cu
         randomness/randomness.cu
     )
