@@ -31,14 +31,18 @@ int main() {
     cudaDeviceSynchronize();
 
     Creatures creatures = Creatures(d_random_states, MAX_CREATURE_N);
+    
+    Map map = Map();
 
-    //cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
 
-    //Map map = Map();
+    creatures.ActionStep(&map, d_random_states);
 
     cudaDeviceSynchronize();
 
     cudaFree(d_random_states);
+
+    std::cout << creatures.action_types_counts[0] << " " << creatures.action_types_counts[1] << " " << creatures.action_types_counts[2] << " " << creatures.action_types_counts[3] << std::endl;
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {

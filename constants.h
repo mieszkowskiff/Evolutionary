@@ -15,8 +15,9 @@
 #define MAX_CREATURE_N (1 << 19)
 
 #define SENSORS_N 32
-#define HIDDEN_NEURONS 32
+#define HIDDEN_N 32
 #define ACTIONS_N 32
+#define ACTION_TYPES_N 4
 
 
 #define SENSOR_STDDEV 1.0f

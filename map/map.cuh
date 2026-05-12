@@ -13,10 +13,11 @@ struct MapData {
 
 
 class Map {
+
+    public:
     MapData* d_data;
     MapData* h_data;
 
-    public:
     Map();
     ~Map();
 
