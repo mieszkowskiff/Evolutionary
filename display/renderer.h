@@ -1,5 +1,6 @@
 #pragma once
 #include <cuda_runtime.h>
+#include "map/map.cuh"
 
 class Renderer {
 public:
@@ -9,7 +10,7 @@ public:
 
     bool shouldClose();
 
-    void renderFrame(unsigned int* d_logic_map);
+    void renderFrame(Map* map);
 
 private:
     int width;

@@ -3,7 +3,7 @@
 
 Map::Map() {
 
-    size_t bytes = WIDTH * HEIGHT * sizeof(__nv_fp8_e4m3);
+    size_t bytes = WIDTH * HEIGHT * sizeof(float);
 
     h_data = new MapData;
 
@@ -25,6 +25,11 @@ Map::~Map() {
     cudaFree(h_data->creature);
     cudaFree(h_data);
     delete h_data;
+}
+
+void Map::refresh() {
+    cudaMemset(h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
+    cudaMemset(h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
 }
 
 __device__ int get_cell_index(int x, int y) {
@@ -53,14 +58,14 @@ __global__ void place_food(MapData* map, int max_food_count, curandState* random
     int rand_x = (int)(curand_uniform(&random_states[idx]) * WIDTH);
     int rand_y = (int)(curand_uniform(&random_states[idx]) * HEIGHT);
 
-    map->food[get_cell_index(rand_x, rand_y)] = (__nv_fp8_e4m3)1.0f;
+    map->food[get_cell_index(rand_x, rand_y)] = 1.0f;
 }
 
-__device__ __nv_fp8_e4m3 get_cell(MapData* map, int layer, int index) {
+__device__ float get_cell(MapData* map, int layer, int index) {
     switch (layer) {
         case 0: return map->food[index];
         case 1: return map->danger[index];
         case 2: return map->creature[index];
-        default: return (__nv_fp8_e4m3)0.0f; 
+        default: return 0.0f; 
     }
 }

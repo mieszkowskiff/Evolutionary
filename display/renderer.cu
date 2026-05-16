@@ -14,18 +14,21 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-__global__ void render_kernel(unsigned int* logic_map, unsigned int* pbo_out, int width, int height) {
+__global__ void render_kernel(MapData* map_data, unsigned int* pbo_out, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < width && y < height) {
         int idx = y * width + x;
-        unsigned int state = logic_map[idx];
-        
+        float food = map_data->food[idx];
+        float creature = map_data->creature[idx];
+        float danger = map_data->danger[idx];
+
         unsigned char r = 20, g = 20, b = 20, a = 255;
 
-        if (state & (1 << BIT_CREATURE)) { r = 255; g = 0; b = 0; }
-        else if (state & (1 << BIT_FOOD)) { r = 20; g = 100; b = 20; }
+        if (creature > 0) {b = 255;}
+        if (food > 0) {g = 255;}
+        if (danger > 0) {r = 255;}
 
         pbo_out[idx] = (a << 24) | (b << 16) | (g << 8) | r;
     }
@@ -69,7 +72,7 @@ bool Renderer::shouldClose() {
     return glfwWindowShouldClose((GLFWwindow*)window);
 }
 
-void Renderer::renderFrame(unsigned int* d_logic_map) {
+void Renderer::renderFrame(Map* map) {
     unsigned int* d_pbo_ptr;
     size_t num_bytes;
     
@@ -78,7 +81,7 @@ void Renderer::renderFrame(unsigned int* d_logic_map) {
 
     dim3 threads(16, 16);
     dim3 blocks((width + threads.x - 1) / threads.x, (height + threads.y - 1) / threads.y);
-    render_kernel<<<blocks, threads>>>(d_logic_map, d_pbo_ptr, width, height);
+    render_kernel<<<blocks, threads>>>(map->d_data, d_pbo_ptr, width, height);
 
     gpuErrchk(cudaGraphicsUnmapResources(1, &cuda_pbo_resource, 0));
 

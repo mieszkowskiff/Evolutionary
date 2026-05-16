@@ -1,16 +1,17 @@
 #include "creatures/creatures.cuh"
 #include "constants.h"
 #include <stdio.h>
+#include <thrust/device_ptr.h>
 
 
 Creatures::Creatures(curandState* state, int count) {
-    this->count = count;
 
     h_data = new CreatureData;
+    h_data->count = count;
 
     cudaMalloc(&h_data->x, MAX_CREATURE_N * sizeof(unsigned int));
     cudaMalloc(&h_data->y, MAX_CREATURE_N * sizeof(unsigned int));
-    cudaMalloc(&h_data->energy, MAX_CREATURE_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->energy, MAX_CREATURE_N * sizeof(float));
 
     cudaMalloc(&h_data->sensor_x, MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
     cudaMalloc(&h_data->sensor_y, MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
@@ -80,14 +81,221 @@ Creatures::~Creatures() {
     delete h_data;
 }
 
-void Creatures::ActionStep(Map* map, curandState* random_states) {
+void Creatures::ChooseAction(Map* map, curandState* random_states) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
-
-    d_ActionStep<<<(count + 255) / 256, 256>>>(map->d_data, d_data, random_states);
-    cudaDeviceSynchronize();
-
+    d_ActionStep<<<(h_data->count + 255) / 256, 256>>>(map->d_data, d_data, random_states);
     cudaMemcpy(this->action_types_counts, h_data->action_types_counts, ACTION_TYPES_N * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+
+    //TODO: sort actions per type to make it more efficient (partial coalescing)
 }
+
+void Creatures::RunActions(Map* map, curandState* random_states) {
+    d_AttackAction<<<(action_types_counts[ATTACK_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    d_MoveAction<<<(action_types_counts[MOVE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    d_EatAction<<<(action_types_counts[EAT_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    d_ReproduceAction<<<(action_types_counts[REPRODUCE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data, random_states);
+}
+
+__global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_creatures->action_types_counts[MOVE_ACTION]) return;
+    int creature_index = d_creatures->move_queue_creatures[idx];
+
+    int creature_x = d_creatures->x[creature_index];
+    int creature_y = d_creatures->y[creature_index];
+
+    // check if creature is attacked and has energy to move
+    float damage = d_map->danger[get_cell_index(creature_x, creature_y)];
+    float energy = (float)d_creatures->energy[creature_index];
+
+    if (damage > 0) {
+        energy -= damage;
+        d_creatures->energy[creature_index] = energy;
+        atomicAdd(&d_map->food[get_cell_index(creature_x, creature_y)], damage);
+    }
+
+    if (energy <= 0) return;
+
+    int8_t action_index = d_creatures->move_queue_actions[idx];
+
+    int8_t action_x = d_creatures->action_x[action_index * MAX_CREATURE_N + creature_index];
+    int8_t action_y = d_creatures->action_y[action_index * MAX_CREATURE_N + creature_index];
+
+
+    d_map->creature[get_cell_index(creature_x, creature_y)] = __float2half(0.0f);
+        
+    int absolute_action_x = creature_x + action_x;
+    int absolute_action_y = creature_y+ action_y;
+
+
+    if (absolute_action_x < 0) absolute_action_x += WIDTH;
+    if (absolute_action_y < 0) absolute_action_y += HEIGHT;
+
+    if (absolute_action_x >= WIDTH) absolute_action_x -= WIDTH;
+    if (absolute_action_y >= HEIGHT) absolute_action_y -= HEIGHT;
+
+    d_creatures->x[creature_index] = absolute_action_x;
+    d_creatures->y[creature_index] = absolute_action_y;
+
+    __syncthreads();
+
+    atomicAdd(&d_map->creature[get_cell_index(absolute_action_x, absolute_action_y)], 1.0f); // maybe we should add energy instead of increment
+}
+
+__global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_creatures->action_types_counts[EAT_ACTION]) return;
+    int creature_index = d_creatures->move_queue_creatures[idx];
+
+    float energy = d_creatures->energy[creature_index];
+    if (energy <= 0) return;
+
+    int8_t action_index = d_creatures->move_queue_actions[idx];
+
+    int8_t action_x = d_creatures->action_x[action_index * MAX_CREATURE_N + creature_index];
+    int8_t action_y = d_creatures->action_y[action_index * MAX_CREATURE_N + creature_index];
+
+    int creature_x = d_creatures->x[creature_index];
+    int creature_y = d_creatures->y[creature_index];
+        
+    int absolute_action_x = creature_x + action_x;
+    int absolute_action_y = creature_y + action_y;
+
+    if (absolute_action_x < 0) absolute_action_x += WIDTH;
+    if (absolute_action_y < 0) absolute_action_y += HEIGHT;
+
+    if (absolute_action_x >= WIDTH) absolute_action_x -= WIDTH;
+    if (absolute_action_y >= HEIGHT) absolute_action_y -= HEIGHT;
+
+    float food_value = atomicExch(&d_map->food[get_cell_index(absolute_action_x, absolute_action_y)], 0.0f);
+
+    d_creatures->energy[creature_index] = energy + food_value;
+}
+
+__global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_creatures->action_types_counts[ATTACK_ACTION]) return;
+    int creature_index = d_creatures->move_queue_creatures[idx];
+    int8_t action_index = d_creatures->move_queue_actions[idx];
+
+    int8_t action_x = d_creatures->action_x[action_index * MAX_CREATURE_N + creature_index];
+    int8_t action_y = d_creatures->action_y[action_index * MAX_CREATURE_N + creature_index];
+
+    int creature_x = d_creatures->x[creature_index];
+    int creature_y = d_creatures->y[creature_index];
+        
+    int absolute_action_x = creature_x + action_x;
+    int absolute_action_y = creature_y+ action_y;
+
+    if (absolute_action_x < 0) absolute_action_x += WIDTH;
+    if (absolute_action_y < 0) absolute_action_y += HEIGHT;
+
+    if (absolute_action_x >= WIDTH) absolute_action_x -= WIDTH;
+    if (absolute_action_y >= HEIGHT) absolute_action_y -= HEIGHT;
+
+    atomicAdd(&d_map->danger[get_cell_index(absolute_action_x, absolute_action_y)], 1.0f);
+}
+
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_creatures->action_types_counts[REPRODUCE_ACTION]) return;
+
+    int parent_creature_index = d_creatures->move_queue_creatures[idx];
+    int8_t action_index = d_creatures->move_queue_actions[idx];
+
+    if (d_creatures->energy[parent_creature_index] <= 0.0f) return;
+
+    int8_t action_x = d_creatures->action_x[action_index * MAX_CREATURE_N + parent_creature_index];
+    int8_t action_y = d_creatures->action_y[action_index * MAX_CREATURE_N + parent_creature_index];
+
+    int creature_x = d_creatures->x[parent_creature_index];
+    int creature_y = d_creatures->y[parent_creature_index];
+        
+    int absolute_action_x = creature_x + action_x;
+    int absolute_action_y = creature_y+ action_y;
+
+    if (absolute_action_x < 0) absolute_action_x += WIDTH;
+    if (absolute_action_y < 0) absolute_action_y += HEIGHT;
+
+    if (absolute_action_x >= WIDTH) absolute_action_x -= WIDTH;
+    if (absolute_action_y >= HEIGHT) absolute_action_y -= HEIGHT;
+
+    int new_creature_idx = atomicAdd(&d_creatures->count, 1);
+
+    if (new_creature_idx >= MAX_CREATURE_N) {
+        return;
+    }
+
+    d_creatures->x[new_creature_idx] = absolute_action_x;
+    d_creatures->y[new_creature_idx] = absolute_action_y;
+    
+    reproduce_creature(d_creatures, parent_creature_index, new_creature_idx, random_states[parent_creature_index]);
+}
+
+__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state) {
+
+    d_creatures->energy[new_creature_idx] = d_creatures->energy[parent_creature_index] * 0.5f;
+    d_creatures->energy[parent_creature_index] = d_creatures->energy[parent_creature_index] * 0.5f;
+
+    // First matrix
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+        for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
+            size_t parent_idx = get_first_matrix_idx(parent_creature_index, hidden_idx, sensor_idx);
+            size_t new_idx = get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx);
+
+            d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->first_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+        }
+    }
+
+    // Second matrix
+    for(int output_idx = 0; output_idx < ACTIONS_N; output_idx++) {
+        for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+            size_t parent_idx = get_second_matrix_idx(parent_creature_index, output_idx, hidden_idx);
+            size_t new_idx = get_second_matrix_idx(new_creature_idx, output_idx, hidden_idx);
+
+            d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->second_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+        }
+    }
+
+    // Bias
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+            size_t parent_idx = parent_creature_index * HIDDEN_N + hidden_idx;
+            size_t new_idx = new_creature_idx * HIDDEN_N + hidden_idx;
+
+            d_creatures->bias[new_idx] = __nv_fp8_e4m3((float)d_creatures->bias[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+    }
+
+    // Actions
+    for(int action_idx = 0; action_idx < ACTIONS_N; action_idx++) {
+        d_creatures->action_x[action_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->action_x[action_idx * MAX_CREATURE_N + parent_creature_index];
+        d_creatures->action_y[action_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->action_y[action_idx * MAX_CREATURE_N + parent_creature_index];
+        d_creatures->action_type[action_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->action_type[action_idx * MAX_CREATURE_N + parent_creature_index];
+    }
+
+    // Sensors
+    for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
+        d_creatures->sensor_x[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_x[sensor_idx * MAX_CREATURE_N + parent_creature_index];
+        d_creatures->sensor_y[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_y[sensor_idx * MAX_CREATURE_N + parent_creature_index];
+        d_creatures->sensor_type[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_type[sensor_idx * MAX_CREATURE_N + parent_creature_index];
+    }
+
+    // Mutate sensors
+    int new_sensors_n = curand(&state) % SENSORS_MUTATION_PACE;
+    for (int sensor = 0; sensor < new_sensors_n; sensor++)
+    {
+        int sensor_idx = curand(&state) % SENSORS_N;
+        AddRandomSensors(d_creatures, new_creature_idx, sensor_idx, state);
+    }
+
+    //Mutate actions
+    int new_actions_n = curand(&state) % ACTIONS_MUTATION_PACE;
+    for (int action = 0; action < new_actions_n; action++)
+    {
+        int action_idx = curand(&state) % ACTIONS_N;
+        SetRandomAction(d_creatures, new_creature_idx, action_idx, state);
+    }
+}
+
 
 __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -107,7 +315,7 @@ __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandSt
 
         int sensor_position = get_cell_index(creature_x + sensor_x, creature_y + sensor_y);
 
-        input_neurons[sensor_index] = get_cell(d_map, sensor_type, sensor_position);
+        input_neurons[sensor_index] = __nv_fp8_e4m3(get_cell(d_map, sensor_type, sensor_position));
     }
 
     __nv_fp8_e4m3 hidden_neurons[HIDDEN_N];
@@ -219,7 +427,7 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, cu
     //Initialize position and energy
     creatures->x[creature_index] = curand(&state) % WIDTH;
     creatures->y[creature_index] = curand(&state) % HEIGHT;
-    creatures->energy[creature_index] = __nv_fp8_e4m3(1.0f);
+    creatures->energy[creature_index] = 1.0f;
 
     // Initialize sensors
     for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {

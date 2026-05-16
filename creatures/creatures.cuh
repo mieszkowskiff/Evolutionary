@@ -7,11 +7,12 @@
 #include "map/map.cuh"
 
 struct CreatureData {
+    int count;
 
     //General data
     unsigned int* x;
     unsigned int* y;
-    __nv_fp8_e4m3* energy;
+    float* energy;
 
     // Sensors data
     int8_t* sensor_x;
@@ -45,7 +46,6 @@ struct CreatureData {
 
 class Creatures {
     public:
-    int count;
 
     unsigned int* action_types_counts;
     
@@ -56,7 +56,9 @@ class Creatures {
     Creatures(curandState* state, int count);
     ~Creatures();
 
-    void ActionStep(Map* map,  curandState* random_states);
+    void ChooseAction(Map* map, curandState* random_states);    
+
+    void RunActions(Map* map, curandState* random_states);
 };
 
 __device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx);
@@ -74,4 +76,10 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, cu
 __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, curandState& state);
 
 
+__global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
+__global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
+__global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states);
+
+__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state);
 # endif

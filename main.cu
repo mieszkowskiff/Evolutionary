@@ -11,6 +11,7 @@
 #include "creatures/creatures.cuh"
 #include "map/map.cuh"
 #include "randomness/randomness.cuh"
+#include "constants.h"
 
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
@@ -23,6 +24,14 @@ extern "C" void signal_handler(int signum) {
 }
 
 int main() {
+    struct sigaction action;
+    action.sa_handler = signal_handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    sigaction(SIGINT, &action, NULL);
+
+
+
     curandState* d_random_states;
     cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState));
 
@@ -34,22 +43,51 @@ int main() {
     
     Map map = Map();
 
-    cudaDeviceSynchronize();
 
-    creatures.ActionStep(&map, d_random_states);
 
     cudaDeviceSynchronize();
+
+    #ifdef ENABLE_DISPLAY
+    // Displaying
+    Renderer display(WIDTH, HEIGHT);
+    #endif
+    bool running = true;
+
+    while (running) {
+
+        creatures.ChooseAction(&map, d_random_states);
+
+        #ifdef ENABLE_DISPLAY
+        display.renderFrame(d_map);
+
+        if(display.shouldClose()){
+            running = false;
+        }
+        #endif
+
+        // here we can copy map to host and save
+
+        cudaDeviceSynchronize();
+
+        std::cout << creatures.action_types_counts[0] << " " << creatures.action_types_counts[1] << " " << creatures.action_types_counts[2] << " " << creatures.action_types_counts[3] << std::endl;
+
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            std::cout << "ERROR: " << cudaGetErrorString(err) << std::endl;
+        } else {
+            std::cout << "No errors found" << std::endl;
+        }
+
+        map.refresh();
+
+        // here we can copy actions to host and save
+
+        cudaDeviceSynchronize();
+
+        creatures.RunActions(&map, d_random_states);
+    }
 
     cudaFree(d_random_states);
-
-    std::cout << creatures.action_types_counts[0] << " " << creatures.action_types_counts[1] << " " << creatures.action_types_counts[2] << " " << creatures.action_types_counts[3] << std::endl;
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        std::cout << "ERROR: " << cudaGetErrorString(err) << std::endl;
-    } else {
-        std::cout << "No errors found" << std::endl;
-    }
 
     return 0;
 };
