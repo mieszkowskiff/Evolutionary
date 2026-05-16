@@ -1,42 +1,14 @@
 # ifndef CONTRACT_CUH
 # define CONTRACT_CUH
 
-__global__ void contract(
-    unsigned int* creature_x,
-    unsigned int* creature_y,
-    float* creature_energy,
+#include "creatures/creatures.cuh"
+#include <curand_kernel.h>
+#include <cuda_fp8.h>
 
-    int *creature_sensors_n,
-    int *creature_hidden_neurons_n,
+void contract(Creatures* old_creatures, Creatures* new_creatures);
 
-    float* creature_sensor_x,
-    float* creature_sensor_y,
-    float* creature_sensor_type,
+__global__ void d_calculate_live_creatures(CreatureData* d_creatures, int* d_creature_alive);
 
-    float* creature_hidden_matrix,
-    float* creature_hidden_bias,
-    float* creature_output_matrix,
-    float* creature_output_bias,
-
-    unsigned int* creature_x_save,
-    unsigned int* creature_y_save,
-    float* creature_energy_save,
-
-    int* creature_sensors_n_save,
-    int* creature_hidden_neurons_n_save,
-
-    float* creature_sensor_x_save,
-    float* creature_sensor_y_save,
-    float* creature_sensor_type_save,
-
-    float* creature_hidden_matrix_save,
-    float* creature_hidden_bias_save,
-    float* creature_output_matrix_save,
-    float* creature_output_bias_save,
-
-    int* contracted_creature_indices,
-    int *creature_alive,
-    int creature_n
-);
+__global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_creatures, int* d_contracted_creature_indices, int* d_creature_alive);
 
 # endif // CONTRACT_CUH

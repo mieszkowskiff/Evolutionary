@@ -90,31 +90,21 @@ void Creatures::ChooseAction(Map* map, curandState* random_states) {
 }
 
 void Creatures::RunActions(Map* map, curandState* random_states) {
-    d_AttackAction<<<(action_types_counts[ATTACK_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
-    d_MoveAction<<<(action_types_counts[MOVE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
-    d_EatAction<<<(action_types_counts[EAT_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
-    d_ReproduceAction<<<(action_types_counts[REPRODUCE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data, random_states);
+    if (action_types_counts[ATTACK_ACTION] > 0) d_AttackAction<<<(action_types_counts[ATTACK_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    if (h_data->count > 0) d_ProcessEnergy<<<(h_data->count + 255) / 256, 256>>>(map->d_data, d_data);
+    if (action_types_counts[MOVE_ACTION] > 0) d_MoveAction<<<(action_types_counts[MOVE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    if (action_types_counts[EAT_ACTION] > 0) d_EatAction<<<(action_types_counts[EAT_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
+    if (action_types_counts[REPRODUCE_ACTION]) d_ReproduceAction<<<(action_types_counts[REPRODUCE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data, random_states);
 }
 
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= d_creatures->action_types_counts[MOVE_ACTION]) return;
     int creature_index = d_creatures->move_queue_creatures[idx];
+    if (d_creatures->energy[creature_index] <= 0) return;
 
     int creature_x = d_creatures->x[creature_index];
     int creature_y = d_creatures->y[creature_index];
-
-    // check if creature is attacked and has energy to move
-    float damage = d_map->danger[get_cell_index(creature_x, creature_y)];
-    float energy = (float)d_creatures->energy[creature_index];
-
-    if (damage > 0) {
-        energy -= damage;
-        d_creatures->energy[creature_index] = energy;
-        atomicAdd(&d_map->food[get_cell_index(creature_x, creature_y)], damage);
-    }
-
-    if (energy <= 0) return;
 
     int8_t action_index = d_creatures->move_queue_actions[idx];
 
@@ -194,6 +184,29 @@ __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures) {
     if (absolute_action_y >= HEIGHT) absolute_action_y -= HEIGHT;
 
     atomicAdd(&d_map->danger[get_cell_index(absolute_action_x, absolute_action_y)], 1.0f);
+}
+
+__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= d_creatures->count) return;
+
+    float energy = d_creatures->energy[idx];
+    if (energy <= 0) return;
+
+    int creature_x = d_creatures->x[idx];
+    int creature_y = d_creatures->y[idx];
+
+    float damage = d_map->danger[get_cell_index(creature_x, creature_y)];
+    energy -= ENERGY_DECAY;
+
+    if (damage > 0) {
+        energy -= damage;
+        atomicAdd(&d_map->food[get_cell_index(creature_x, creature_y)], damage);
+    }
+
+    d_creatures->energy[idx] = energy;
+
+    
 }
 
 __global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states) {
@@ -300,7 +313,7 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
 __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if ((float)d_creatures->energy[creature_index] <= 0.0f) return;
+    if (d_creatures->energy[creature_index] <= 0.0f) return;
 
     __nv_fp8_e4m3 input_neurons[SENSORS_N];
 

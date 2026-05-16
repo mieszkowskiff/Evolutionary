@@ -27,9 +27,10 @@ Map::~Map() {
     delete h_data;
 }
 
-void Map::refresh() {
+void Map::refresh(curandState* random_states, int max_food_count) {
     cudaMemset(h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
+    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states);
 }
 
 __device__ int get_cell_index(int x, int y) {

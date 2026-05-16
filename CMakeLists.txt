@@ -23,6 +23,8 @@ if(ENABLE_DISPLAY)
         creatures/creatures.cu
         map/map.cu
         randomness/randomness.cu
+        contract/contract.cu
+        display/renderer.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -44,6 +46,7 @@ else()
         creatures/creatures.cu
         map/map.cu
         randomness/randomness.cu
+        contract/contract.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

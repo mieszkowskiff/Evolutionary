@@ -19,16 +19,16 @@ __global__ void render_kernel(MapData* map_data, unsigned int* pbo_out, int widt
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < width && y < height) {
-        int idx = y * width + x;
+        int idx = get_cell_index(x, y);
         float food = map_data->food[idx];
         float creature = map_data->creature[idx];
         float danger = map_data->danger[idx];
 
-        unsigned char r = 20, g = 20, b = 20, a = 255;
+        unsigned char r = 255, g = 255, b = 255, a = 255;
 
-        if (creature > 0) {b = 255;}
-        if (food > 0) {g = 255;}
-        if (danger > 0) {r = 255;}
+        if (creature > 0) {r = 0, g = 0, b = 255, a = 255;}
+        if (food > 0) {r = 0, g = 255, b = 0, a = 255;}
+        // if (danger > 0) {r = 255;}
 
         pbo_out[idx] = (a << 24) | (b << 16) | (g << 8) | r;
     }

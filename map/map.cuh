@@ -23,10 +23,10 @@ class Map {
 
     void remove_creatures_from_map();
 
-    void refresh();
+    void refresh(curandState* random_states, int max_food_count);
 };
 
-__global__ void place_food(Map* map, int max_food_count, curandState* random_states);
+__global__ void place_food(MapData* map, int max_food_count, curandState* random_states);
 
 __device__ int get_cell_index(int x, int y);
 

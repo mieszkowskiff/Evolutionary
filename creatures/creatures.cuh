@@ -7,8 +7,8 @@
 #include "map/map.cuh"
 
 struct CreatureData {
-    int count;
 
+    int count;
     //General data
     unsigned int* x;
     unsigned int* y;
@@ -20,7 +20,6 @@ struct CreatureData {
     int8_t* sensor_type;
 
     //Network data
-    int8_t* output_neurons_n;
     __nv_fp8_e4m3* first_matrix;
     __nv_fp8_e4m3* second_matrix;
     __nv_fp8_e4m3* bias;
@@ -80,6 +79,7 @@ __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states);
+__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures);
 
 __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state);
 # endif
