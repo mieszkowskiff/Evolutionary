@@ -8,11 +8,11 @@
 
 struct CreatureData {
 
-    int count;
     //General data
     unsigned int* x;
     unsigned int* y;
     float* energy;
+    long long* ids;
 
     // Sensors data
     int8_t* sensor_x;
@@ -46,13 +46,15 @@ struct CreatureData {
 class Creatures {
     public:
 
+    int count;
+    long long* global_id_counter;
     unsigned int* action_types_counts;
     
     CreatureData* d_data;
     CreatureData* h_data;
 
     
-    Creatures(curandState* state, int count);
+    Creatures(curandState* state, int count, long long *global_id_counter);
     ~Creatures();
 
     void ChooseAction(Map* map, curandState* random_states);    
@@ -64,9 +66,9 @@ __device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hi
 
 __device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx);
 
-__global__ void InitializeRandomCreatures(CreatureData* d_data, int count, curandState* states);
+__global__ void InitializeRandomCreatures(CreatureData* d_data, int count, curandState* states, long long global_id_counter);
 
-__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states);
+__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states, int count);
 
 __device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, curandState& state);
 
@@ -78,8 +80,8 @@ __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
-__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states);
-__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures);
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, long long global_id_counter, int count);
+__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int count);
 
-__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state);
+__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state, long long new_id);
 # endif

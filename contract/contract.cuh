@@ -7,8 +7,8 @@
 
 void contract(Creatures* old_creatures, Creatures* new_creatures);
 
-__global__ void d_calculate_live_creatures(CreatureData* d_creatures, int* d_creature_alive);
+__global__ void d_calculate_live_creatures(CreatureData* d_creatures, int* d_creature_alive, int count);
 
-__global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_creatures, int* d_contracted_creature_indices, int* d_creature_alive);
+__global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_creatures, int* d_contracted_creature_indices, int* d_creature_alive, int count);
 
 # endif // CONTRACT_CUH

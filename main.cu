@@ -40,13 +40,21 @@ int main() {
 
     cudaDeviceSynchronize();
 
-    Creatures creatures1 = Creatures(d_random_states, 16);
-    Creatures creatures2 = Creatures(d_random_states, 1);
+    long long* global_id_counter = new long long;
+
+    *global_id_counter = 0;
+
+    Creatures creatures1 = Creatures(d_random_states, 4096, global_id_counter);
+    Creatures creatures2 = Creatures(d_random_states, 0, global_id_counter);
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
     
     Map map = Map();
+
+    float* food_save = new float[WIDTH * HEIGHT];
+    float* creature_save = new float[WIDTH * HEIGHT];
+    float* danger_save = new float[WIDTH * HEIGHT];
 
     cudaDeviceSynchronize();
 
@@ -79,11 +87,13 @@ int main() {
             running = false;
         }
 
-        // here we can copy map to host and save
+        cudaMemcpy(creature_save, map.h_data->creature, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(food_save, map.h_data->food, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(danger_save, map.h_data->danger, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
 
         cudaDeviceSynchronize();
 
-        std::cout << current_creatures->h_data->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
+        std::cout << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
 
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
@@ -98,13 +108,15 @@ int main() {
 
         current_creatures->RunActions(&map, d_random_states);
 
+        cudaDeviceSynchronize();
+
         t++;
 
         if (!(t % 10)) {
             std::cout << "Contracting..." << std::endl;
             contract(current_creatures, next_creatures);
             std::swap(current_creatures, next_creatures);
-            if (current_creatures->h_data->count == 0) {
+            if (current_creatures->count == 0) {
                 std::cout << "All creatures died. Ending simulation." << std::endl;
                 running = false;
             }
@@ -112,6 +124,7 @@ int main() {
     }
 
     cudaFree(d_random_states);
+    delete global_id_counter;
 
     return 0;
 };
