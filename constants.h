@@ -19,7 +19,6 @@
 #define ACTIONS_N 32
 #define ACTION_TYPES_N 4
 
-
 #define SENSOR_STDDEV 1.0f
 #define ACTION_STDDEV 1.0f
 
