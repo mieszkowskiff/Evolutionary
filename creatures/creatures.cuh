@@ -29,6 +29,8 @@ struct CreatureData {
     int8_t* action_y;
     int8_t* action_type;
 
+    int8_t* chosen_action;
+
     unsigned int* move_queue_creatures;
     unsigned int* eat_queue_creatures;
     unsigned int* attack_queue_creatures;
@@ -42,7 +44,6 @@ struct CreatureData {
     unsigned int* action_types_counts;
 };
 
-
 class Creatures {
     public:
 
@@ -53,13 +54,17 @@ class Creatures {
     CreatureData* d_data;
     CreatureData* h_data;
 
+    CreatureData* h_pinned;
     
     Creatures(curandState* state, int count, long long *global_id_counter);
     ~Creatures();
 
     void ChooseAction(Map* map, curandState* random_states);    
 
+
     void RunActions(Map* map, curandState* random_states);
+
+    void Save_tick(int tick);
 };
 
 __device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx);

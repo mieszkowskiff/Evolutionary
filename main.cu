@@ -87,28 +87,30 @@ int main() {
             running = false;
         }
 
-        cudaMemcpy(creature_save, map.h_data->creature, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
-        cudaMemcpy(food_save, map.h_data->food, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
-        cudaMemcpy(danger_save, map.h_data->danger, WIDTH * HEIGHT * sizeof(float), cudaMemcpyDeviceToHost);
+        map.Save(t);
 
         cudaDeviceSynchronize();
 
-        std::cout << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
+        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
 
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
-        map.refresh(d_random_states, FOOD_SPAWN_QUANTITY);
+        cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
+        cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
 
-        // here we can copy actions to host and save
+        current_creatures->Save_tick(t);
 
         cudaDeviceSynchronize();
 
         current_creatures->RunActions(&map, d_random_states);
 
         cudaDeviceSynchronize();
+
+        place_food<<<(FOOD_SPAWN_QUANTITY + 255) / 256, 256>>>(map.d_data, FOOD_SPAWN_QUANTITY, d_random_states);
+
 
         t++;
 

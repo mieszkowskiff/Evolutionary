@@ -17,9 +17,12 @@ class Map {
     public:
     MapData* d_data;
     MapData* h_data;
+    MapData* h_pinned;
 
     Map();
     ~Map();
+
+    void Save(int tick);
 
     void remove_creatures_from_map();
 

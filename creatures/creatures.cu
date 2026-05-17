@@ -27,6 +27,7 @@ Creatures::Creatures(curandState* state, int count, long long *global_id_counter
     cudaMalloc(&h_data->action_y, MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
     cudaMalloc(&h_data->action_type, MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
 
+    cudaMalloc(&h_data->chosen_action, MAX_CREATURE_N * sizeof(int8_t));
 
     cudaMalloc(&h_data->move_queue_creatures, MAX_CREATURE_N * sizeof(unsigned int));
     cudaMalloc(&h_data->eat_queue_creatures, MAX_CREATURE_N * sizeof(unsigned int));
@@ -45,10 +46,63 @@ Creatures::Creatures(curandState* state, int count, long long *global_id_counter
 
     action_types_counts = new unsigned int[ACTION_TYPES_N];
 
+    h_pinned = new CreatureData;
+    cudaMallocHost(&h_pinned->x,            MAX_CREATURE_N * sizeof(unsigned int));
+    cudaMallocHost(&h_pinned->y,            MAX_CREATURE_N * sizeof(unsigned int));
+    cudaMallocHost(&h_pinned->energy,       MAX_CREATURE_N * sizeof(float));
+    cudaMallocHost(&h_pinned->ids,          MAX_CREATURE_N * sizeof(long long));
+    cudaMallocHost(&h_pinned->chosen_action,MAX_CREATURE_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_x,     MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_y,     MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_type,  MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->action_x,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->action_y,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->action_type,   MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
+
+
+
     cudaDeviceSynchronize();
     if (count > 0) InitializeRandomCreatures<<<(count + 255) / 256, 256>>>(d_data, count, state, *global_id_counter);
     *global_id_counter += count;
     cudaDeviceSynchronize();
+}
+
+void Creatures::Save_tick(int tick) {
+    size_t bytes_count = count * sizeof(unsigned int);
+    size_t bytes_energy = count * sizeof(float);
+    size_t bytes_id = count * sizeof(long long);
+
+    cudaMemcpy(h_pinned->x,      h_data->x,      bytes_count,  cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->y,      h_data->y,      bytes_count,  cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->energy, h_data->energy, bytes_energy, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->ids,    h_data->ids,    bytes_id,     cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->chosen_action, h_data->chosen_action, count * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->sensor_x, h_data->sensor_x, count * SENSORS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->sensor_y, h_data->sensor_y, count * SENSORS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->sensor_type, h_data->sensor_type, count * SENSORS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->action_x, h_data->action_x, count * ACTIONS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->action_y, h_data->action_y, count * ACTIONS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->action_type, h_data->action_type, count * ACTIONS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
+
+    char fname[64];
+    snprintf(fname, sizeof(fname), "creatures_%06d.bin", tick);
+    FILE* f = fopen(fname, "wb");
+    int sensors_n = SENSORS_N, actions_n = ACTIONS_N;
+    fwrite(&count,     sizeof(int), 1, f);
+    fwrite(&sensors_n, sizeof(int), 1, f);
+    fwrite(&actions_n, sizeof(int), 1, f);
+    fwrite(h_pinned->x,     sizeof(unsigned int), count, f);
+    fwrite(h_pinned->y,     sizeof(unsigned int), count, f);
+    fwrite(h_pinned->energy,sizeof(float),        count, f);
+    fwrite(h_pinned->ids,   sizeof(long long),    count, f);
+    fwrite(h_pinned->chosen_action, sizeof(int8_t), count, f);
+    fwrite(h_pinned->sensor_x, sizeof(int8_t), count * SENSORS_N, f);
+    fwrite(h_pinned->sensor_y, sizeof(int8_t), count * SENSORS_N, f);
+    fwrite(h_pinned->sensor_type, sizeof(int8_t), count * SENSORS_N, f);
+    fwrite(h_pinned->action_x, sizeof(int8_t), count * ACTIONS_N, f);
+    fwrite(h_pinned->action_y, sizeof(int8_t), count * ACTIONS_N, f);
+    fwrite(h_pinned->action_type, sizeof(int8_t), count * ACTIONS_N, f);
+    fclose(f);
 }
 
 Creatures::~Creatures() {
@@ -69,6 +123,8 @@ Creatures::~Creatures() {
     cudaFree(h_data->action_y);
     cudaFree(h_data->action_type);
 
+    cudaFree(h_data->chosen_action);
+
     cudaFree(h_data->move_queue_creatures);
     cudaFree(h_data->eat_queue_creatures);
     cudaFree(h_data->attack_queue_creatures);
@@ -83,6 +139,21 @@ Creatures::~Creatures() {
 
     cudaFree(d_data);
     delete h_data;
+
+    cudaFreeHost(h_pinned->x);
+    cudaFreeHost(h_pinned->y);
+    cudaFreeHost(h_pinned->energy);
+    cudaFreeHost(h_pinned->ids);
+    cudaFreeHost(h_pinned->chosen_action);
+
+    cudaFreeHost(h_pinned->sensor_x);
+    cudaFreeHost(h_pinned->sensor_y);
+    cudaFreeHost(h_pinned->sensor_type);
+    cudaFreeHost(h_pinned->action_x);
+    cudaFreeHost(h_pinned->action_y);
+    cudaFreeHost(h_pinned->action_type);
+
+    delete h_pinned;
 }
 
 void Creatures::ChooseAction(Map* map, curandState* random_states) {
@@ -420,6 +491,8 @@ __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandSt
         unsigned int type = d_creatures->action_type[selected_action * MAX_CREATURE_N + creature_index];
 
         unsigned int queue_index = atomicAdd(&d_creatures->action_types_counts[type], 1);
+
+        d_creatures->chosen_action[creature_index] = selected_action;
 
         switch (type) {
             case 0: // Move

@@ -1,5 +1,6 @@
 #include "map/map.cuh"
 #include "constants.h"
+#include <fstream>
 
 Map::Map() {
 
@@ -17,14 +18,45 @@ Map::Map() {
     cudaMemset(h_data->food, 0, bytes);
     cudaMemset(h_data->danger, 0, bytes);
     cudaMemset(h_data->creature, 0, bytes);
+
+    h_pinned = new MapData;
+    cudaMallocHost(&h_pinned->food,     bytes);
+    cudaMallocHost(&h_pinned->danger,   bytes);
+    cudaMallocHost(&h_pinned->creature, bytes);
 }
 
 Map::~Map() {
     cudaFree(h_data->food);
     cudaFree(h_data->danger);
     cudaFree(h_data->creature);
-    cudaFree(h_data);
+    cudaFree(d_data);
     delete h_data;
+
+    cudaFreeHost(h_pinned->food);
+    cudaFreeHost(h_pinned->danger);
+    cudaFreeHost(h_pinned->creature);
+    delete h_pinned;
+}
+
+void Map::Save(int tick) {
+    size_t bytes = WIDTH * HEIGHT * sizeof(float);
+
+    cudaMemcpy(h_pinned->food,     h_data->food,     bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->danger,   h_data->danger,   bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_pinned->creature, h_data->creature, bytes, cudaMemcpyDeviceToHost);
+
+    char fname[64];
+    snprintf(fname, sizeof(fname), "map_%06d.bin", tick);
+
+    FILE* f = fopen(fname, "wb");
+    
+    int width = WIDTH, height = HEIGHT;
+    fwrite(&width,  sizeof(int), 1, f);
+    fwrite(&height, sizeof(int), 1, f);
+    fwrite(h_pinned->food,     sizeof(float), WIDTH * HEIGHT, f);
+    fwrite(h_pinned->danger,   sizeof(float), WIDTH * HEIGHT, f);
+    fwrite(h_pinned->creature, sizeof(float), WIDTH * HEIGHT, f);
+    fclose(f);
 }
 
 void Map::refresh(curandState* random_states, int max_food_count) {
