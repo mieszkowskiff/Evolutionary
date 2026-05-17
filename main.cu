@@ -30,7 +30,8 @@ int main() {
     action.sa_flags = 0;
     sigaction(SIGINT, &action, NULL);
 
-
+    cudaError cudaStatus;
+ 
 
     curandState* d_random_states;
     cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState));
@@ -40,7 +41,7 @@ int main() {
     cudaDeviceSynchronize();
 
     Creatures creatures1 = Creatures(d_random_states, 16);
-    Creatures creatures2 = Creatures(d_random_states, 0);
+    Creatures creatures2 = Creatures(d_random_states, 1);
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
@@ -84,11 +85,9 @@ int main() {
 
         std::cout << current_creatures->h_data->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
 
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::cout << "ERROR: " << cudaGetErrorString(err) << std::endl;
-        } else {
-            std::cout << "No errors found" << std::endl;
+        cudaStatus = cudaGetLastError();
+        if (cudaStatus != cudaSuccess) {
+            std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
         map.refresh(d_random_states, FOOD_SPAWN_QUANTITY);
@@ -101,9 +100,14 @@ int main() {
 
         t++;
 
-        if (!(t % 100)) {
+        if (!(t % 10)) {
+            std::cout << "Contracting..." << std::endl;
             contract(current_creatures, next_creatures);
             std::swap(current_creatures, next_creatures);
+            if (current_creatures->h_data->count == 0) {
+                std::cout << "All creatures died. Ending simulation." << std::endl;
+                running = false;
+            }
         }
     }
 

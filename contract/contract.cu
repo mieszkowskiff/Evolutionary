@@ -20,9 +20,15 @@ void contract(Creatures* old_creatures, Creatures* new_creatures) {
 
     contract<<<(old_creatures->h_data->count + 255) / 256, 256>>>(old_creatures->d_data, new_creatures->d_data, d_contracted_creature_indices, d_creature_alive);
 
-    int last_creature_alive = d_creature_alive[old_creatures->h_data->count - 1];
-    int new_count = d_contracted_creature_indices[old_creatures->h_data->count - 1] + last_creature_alive;
-    cudaMemcpy(&new_creatures->h_data->count, &new_count, sizeof(int), cudaMemcpyHostToDevice);
+    int last_creature_alive;// = d_creature_alive[old_creatures->h_data->count - 1];
+    int new_count;// = d_contracted_creature_indices[old_creatures->h_data->count - 1] + last_creature_alive;
+
+    cudaMemcpy(&last_creature_alive, d_creature_alive + old_creatures->h_data->count - 1, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&new_count, d_contracted_creature_indices + old_creatures->h_data->count - 1, sizeof(int), cudaMemcpyDeviceToHost);
+
+    new_count += last_creature_alive;
+
+    new_creatures->h_data->count = new_count;
     
     cudaMemcpy(new_creatures->d_data, new_creatures->h_data, sizeof(CreatureData), cudaMemcpyHostToDevice);
 }
@@ -46,34 +52,31 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
 
     //Copying data
 
-    d_old_creatures->x[new_creature_idx] = d_old_creatures->x[old_creature_index];
-    d_old_creatures->y[new_creature_idx] = d_old_creatures->y[old_creature_index];
-    d_old_creatures->energy[new_creature_idx] = d_old_creatures->energy[old_creature_index];
+    d_new_creatures->x[new_creature_idx] = d_old_creatures->x[old_creature_index];
+    d_new_creatures->y[new_creature_idx] = d_old_creatures->y[old_creature_index];
+    d_new_creatures->energy[new_creature_idx] = d_old_creatures->energy[old_creature_index];
 
     for (int i = 0; i < SENSORS_N; i++) {
-        d_old_creatures->sensor_x[new_creature_idx * SENSORS_N + i] = d_old_creatures->sensor_x[old_creature_index * SENSORS_N + i];
-        d_old_creatures->sensor_y[new_creature_idx * SENSORS_N + i] = d_old_creatures->sensor_y[old_creature_index * SENSORS_N + i];
-        d_old_creatures->sensor_type[new_creature_idx * SENSORS_N + i] = d_old_creatures->sensor_type[old_creature_index * SENSORS_N + i];
+        d_new_creatures->sensor_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_x[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->sensor_y[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_y[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->sensor_type[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_type[i * MAX_CREATURE_N + old_creature_index];
     }
 
     for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
         for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
-            d_old_creatures->first_matrix[get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx)] = d_old_creatures->first_matrix[get_first_matrix_idx(old_creature_index, hidden_idx, sensor_idx)];
+            d_new_creatures->first_matrix[get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx)] = d_old_creatures->first_matrix[get_first_matrix_idx(old_creature_index, hidden_idx, sensor_idx)];
         }
     }
 
     for(int action_idx = 0; action_idx < ACTIONS_N; action_idx++) {
         for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-            d_old_creatures->first_matrix[get_second_matrix_idx(new_creature_idx, action_idx, hidden_idx)] = d_old_creatures->first_matrix[get_second_matrix_idx(old_creature_index, action_idx, hidden_idx)];
+            d_new_creatures->first_matrix[get_second_matrix_idx(new_creature_idx, action_idx, hidden_idx)] = d_old_creatures->first_matrix[get_second_matrix_idx(old_creature_index, action_idx, hidden_idx)];
         }
     }
 
     for (int i = 0; i < ACTIONS_N; i++) {
-        d_old_creatures->action_x[new_creature_idx * ACTIONS_N + i] = d_old_creatures->action_x[old_creature_index * ACTIONS_N + i];
-        d_old_creatures->action_y[new_creature_idx * ACTIONS_N + i] = d_old_creatures->action_y[old_creature_index * ACTIONS_N + i];
-        d_old_creatures->action_type[new_creature_idx * ACTIONS_N + i] = d_old_creatures->action_type[old_creature_index * ACTIONS_N + i];
+        d_new_creatures->action_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_x[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->action_y[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_y[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->action_type[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_type[i * MAX_CREATURE_N + old_creature_index];
     }
-
-
-    
 }

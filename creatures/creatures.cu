@@ -83,7 +83,7 @@ Creatures::~Creatures() {
 
 void Creatures::ChooseAction(Map* map, curandState* random_states) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
-    d_ActionStep<<<(h_data->count + 255) / 256, 256>>>(map->d_data, d_data, random_states);
+    if (h_data->count > 0) d_ActionStep<<<(h_data->count + 255) / 256, 256>>>(map->d_data, d_data, random_states);
     cudaMemcpy(this->action_types_counts, h_data->action_types_counts, ACTION_TYPES_N * sizeof(unsigned int), cudaMemcpyDeviceToHost);
 
     //TODO: sort actions per type to make it more efficient (partial coalescing)
@@ -95,6 +95,9 @@ void Creatures::RunActions(Map* map, curandState* random_states) {
     if (action_types_counts[MOVE_ACTION] > 0) d_MoveAction<<<(action_types_counts[MOVE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
     if (action_types_counts[EAT_ACTION] > 0) d_EatAction<<<(action_types_counts[EAT_ACTION] + 255) / 256, 256>>>(map->d_data, d_data);
     if (action_types_counts[REPRODUCE_ACTION]) d_ReproduceAction<<<(action_types_counts[REPRODUCE_ACTION] + 255) / 256, 256>>>(map->d_data, d_data, random_states);
+
+    cudaDeviceSynchronize();
+    cudaMemcpy(&h_data->count, &d_data->count, sizeof(int), cudaMemcpyDeviceToHost);
 }
 
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures) {

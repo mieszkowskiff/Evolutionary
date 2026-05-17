@@ -34,7 +34,7 @@
 #define REPRODUCE_ACTION 3
 
 
-#define ENERGY_DECAY 0.01f
+#define ENERGY_DECAY 0.02f
 #define FOOD_SPAWN_QUANTITY 1024
 
 
