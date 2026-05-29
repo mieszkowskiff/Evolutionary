@@ -3,6 +3,10 @@
 #include <csignal>
 #include <unistd.h>
 #include <algorithm>
+
+#include <cstdlib>
+#include <cstring>
+
 #include <thrust/scan.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -23,7 +27,124 @@ extern "C" void signal_handler(int signum) {
     interrupted = 1;
 }
 
-int main() {
+struct RunConfig {
+    int initial_creatures = 4096;
+    unsigned long long seed = 1234ULL;
+    int food_spawn_quantity = FOOD_SPAWN_QUANTITY;
+    int initial_food_multiplier = 128;
+    int save_every = 1;
+    int max_ticks = -1;
+    int contract_every = 10;
+    int save_creatures = 1;
+};
+
+int parse_int_arg(const char* value, const char* name) {
+    char* end = nullptr;
+    long v = std::strtol(value, &end, 10);
+
+    if (end == value || *end != '\0') {
+        std::cerr << "Invalid integer for " << name << ": " << value << std::endl;
+        std::exit(2);
+    }
+
+    return static_cast<int>(v);
+}
+
+unsigned long long parse_ull_arg(const char* value, const char* name) {
+    char* end = nullptr;
+    unsigned long long v = std::strtoull(value, &end, 10);
+
+    if (end == value || *end != '\0') {
+        std::cerr << "Invalid unsigned integer for " << name << ": " << value << std::endl;
+        std::exit(2);
+    }
+
+    return v;
+}
+
+void print_usage(const char* prog) {
+    std::cout
+        << "Usage: " << prog << " [options]\n\n"
+        << "Options:\n"
+        << "  --initial-creatures N\n"
+        << "  --seed N\n"
+        << "  --food-spawn-quantity N\n"
+        << "  --initial-food-multiplier N\n"
+        << "  --save-every N\n"
+        << "  --max-ticks N\n"
+        << "  --contract-every N\n"
+        << "  --save-creatures 0|1\n"
+        << "  --help\n\n"
+        << "Compile-time constants:\n"
+        << "  WIDTH=" << WIDTH << "\n"
+        << "  HEIGHT=" << HEIGHT << "\n"
+        << "  MAX_CREATURE_N=" << MAX_CREATURE_N << "\n";
+}
+
+RunConfig parse_args(int argc, char** argv) {
+    RunConfig cfg;
+
+    for (int i = 1; i < argc; ++i) {
+        auto value_after = [&](const char* arg) -> const char* {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing value after " << arg << std::endl;
+                std::exit(2);
+            }
+            return argv[++i];
+        };
+
+        if (std::strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            std::exit(0);
+        } else if (std::strcmp(argv[i], "--initial-creatures") == 0) {
+            cfg.initial_creatures = parse_int_arg(value_after(argv[i]), "--initial-creatures");
+        } else if (std::strcmp(argv[i], "--seed") == 0) {
+            cfg.seed = parse_ull_arg(value_after(argv[i]), "--seed");
+        } else if (std::strcmp(argv[i], "--food-spawn-quantity") == 0) {
+            cfg.food_spawn_quantity = parse_int_arg(value_after(argv[i]), "--food-spawn-quantity");
+        } else if (std::strcmp(argv[i], "--initial-food-multiplier") == 0) {
+            cfg.initial_food_multiplier = parse_int_arg(value_after(argv[i]), "--initial-food-multiplier");
+        } else if (std::strcmp(argv[i], "--save-every") == 0) {
+            cfg.save_every = parse_int_arg(value_after(argv[i]), "--save-every");
+        } else if (std::strcmp(argv[i], "--max-ticks") == 0) {
+            cfg.max_ticks = parse_int_arg(value_after(argv[i]), "--max-ticks");
+        } else if (std::strcmp(argv[i], "--contract-every") == 0) {
+            cfg.contract_every = parse_int_arg(value_after(argv[i]), "--contract-every");
+        } else if (std::strcmp(argv[i], "--save-creatures") == 0) {
+            cfg.save_creatures = parse_int_arg(value_after(argv[i]), "--save-creatures");
+        } else {
+            std::cerr << "Unknown argument: " << argv[i] << std::endl;
+            print_usage(argv[0]);
+            std::exit(2);
+        }
+    }
+
+    if (cfg.initial_creatures < 0 || cfg.initial_creatures > MAX_CREATURE_N) {
+        std::cerr << "--initial-creatures must be between 0 and MAX_CREATURE_N" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.save_every < 0) {
+        std::cerr << "--save-every must be >= 0" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.contract_every <= 0) {
+        std::cerr << "--contract-every must be > 0" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.save_creatures != 0 && cfg.save_creatures != 1) {
+        std::cerr << "--save-creatures must be 0 or 1" << std::endl;
+        std::exit(2);
+    }
+
+    return cfg;
+}
+
+int main(int argc, char** argv) {
+    RunConfig cfg = parse_args(argc, argv);
+    
     struct sigaction action;
     action.sa_handler = signal_handler;
     sigemptyset(&action.sa_mask);
@@ -36,7 +157,7 @@ int main() {
     curandState* d_random_states;
     cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState));
 
-    init_curand_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(d_random_states, 1234);
+    init_curand_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(d_random_states, cfg.seed);
 
     cudaDeviceSynchronize();
 
@@ -44,7 +165,7 @@ int main() {
 
     *global_id_counter = 0;
 
-    Creatures creatures1 = Creatures(d_random_states, 4096, global_id_counter);
+    Creatures creatures1 = Creatures(d_random_states, cfg.initial_creatures, global_id_counter);
     Creatures creatures2 = Creatures(d_random_states, 0, global_id_counter);
 
     Creatures* current_creatures = &creatures1;
@@ -58,7 +179,7 @@ int main() {
 
     cudaDeviceSynchronize();
 
-    map.refresh(d_random_states, FOOD_SPAWN_QUANTITY * 128);
+    map.refresh(d_random_states, cfg.food_spawn_quantity * cfg.initial_food_multiplier);
 
     cudaDeviceSynchronize();
 
@@ -70,7 +191,7 @@ int main() {
 
     int t = 0;
 
-    while (running) {
+    while (running && (cfg.max_ticks < 0 || t < cfg.max_ticks)) {
 
         current_creatures->ChooseAction(&map, d_random_states);
 
@@ -87,9 +208,12 @@ int main() {
             running = false;
         }
 
-        map.Save(t);
+        bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
 
-        cudaDeviceSynchronize();
+        if (should_save) {
+            map.Save(t);
+            cudaDeviceSynchronize();
+        }
 
         std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
 
@@ -101,20 +225,25 @@ int main() {
         cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
 
-        current_creatures->Save_tick(t);
-
-        cudaDeviceSynchronize();
+        if (should_save && cfg.save_creatures) {
+            current_creatures->Save_tick(t);
+            cudaDeviceSynchronize();
+        }
 
         current_creatures->RunActions(&map, d_random_states);
 
         cudaDeviceSynchronize();
 
-        place_food<<<(FOOD_SPAWN_QUANTITY + 255) / 256, 256>>>(map.d_data, FOOD_SPAWN_QUANTITY, d_random_states);
+        place_food<<<(cfg.food_spawn_quantity + 255) / 256, 256>>>(
+            map.d_data,
+            cfg.food_spawn_quantity,
+            d_random_states
+        );
 
 
         t++;
 
-        if (!(t % 10)) {
+        if (!(t % cfg.contract_every)) {
             std::cout << "Contracting..." << std::endl;
             contract(current_creatures, next_creatures);
             std::swap(current_creatures, next_creatures);
