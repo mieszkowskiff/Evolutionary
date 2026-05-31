@@ -59,6 +59,7 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
     d_new_creatures->y[new_creature_idx] = d_old_creatures->y[old_creature_index];
     d_new_creatures->energy[new_creature_idx] = d_old_creatures->energy[old_creature_index];
     d_new_creatures->ids[new_creature_idx] = d_old_creatures->ids[old_creature_index];
+    d_new_creatures->age[new_creature_idx] = d_old_creatures->age[old_creature_index];
 
     for (int i = 0; i < SENSORS_N; i++) {
         d_new_creatures->sensor_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_x[i * MAX_CREATURE_N + old_creature_index];
@@ -76,6 +77,11 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
         for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
             d_new_creatures->second_matrix[get_second_matrix_idx(new_creature_idx, action_idx, hidden_idx)] = d_old_creatures->second_matrix[get_second_matrix_idx(old_creature_index, action_idx, hidden_idx)];
         }
+    }
+
+    for (int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+        d_new_creatures->bias[new_creature_idx * HIDDEN_N + hidden_idx] =
+            d_old_creatures->bias[old_creature_index * HIDDEN_N + hidden_idx];
     }
 
     for (int i = 0; i < ACTIONS_N; i++) {
