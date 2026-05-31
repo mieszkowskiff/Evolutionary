@@ -13,6 +13,7 @@ struct CreatureData {
     unsigned int* y;
     float* energy;
     long long* ids;
+    int* age;
 
     // Sensors data
     int8_t* sensor_x;
@@ -50,6 +51,9 @@ class Creatures {
     int count;
     long long* global_id_counter;
     unsigned int* action_types_counts;
+    unsigned int* d_successful_births;
+    unsigned int* d_attack_damage_kills;
+    unsigned int h_attack_damage_kills;
     
     CreatureData* d_data;
     CreatureData* h_data;
@@ -61,6 +65,7 @@ class Creatures {
 
     void ChooseAction(Map* map, curandState* random_states);    
 
+    void RebuildCreatureMap(Map* map);
 
     void RunActions(Map* map, curandState* random_states);
 
@@ -85,8 +90,10 @@ __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
-__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, long long global_id_counter, int count);
-__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int count);
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned int* d_successful_births, long long global_id_counter, int count,  int max_children, int reproduce_count);
+__global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int count, unsigned int* d_attack_damage_kills);
 
 __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state, long long new_id);
+
+__global__ void d_RebuildCreatureMap(MapData* d_map, CreatureData* d_creatures, int count);
 # endif

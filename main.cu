@@ -183,6 +183,10 @@ int main(int argc, char** argv) {
 
     cudaDeviceSynchronize();
 
+    current_creatures->RebuildCreatureMap(&map);
+    
+    cudaDeviceSynchronize();
+
     #ifdef ENABLE_DISPLAY
     // Displaying
     Renderer display(WIDTH, HEIGHT);
@@ -210,19 +214,20 @@ int main(int argc, char** argv) {
 
         bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
 
-        if (should_save) {
+        // should_save
+        if (false) {
             map.Save(t);
             cudaDeviceSynchronize();
         }
 
-        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << std::endl;
+        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
 
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
-        cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
+        // cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
 
         if (should_save && cfg.save_creatures) {
@@ -234,12 +239,27 @@ int main(int argc, char** argv) {
 
         cudaDeviceSynchronize();
 
-        place_food<<<(cfg.food_spawn_quantity + 255) / 256, 256>>>(
-            map.d_data,
-            cfg.food_spawn_quantity,
-            d_random_states
-        );
+        float season_offset = 1.0f;
+        float season_amplitude = 0.5f;
+        float season_period = 500.0f;
 
+        float seasonal_factor =
+            season_offset +
+            season_amplitude * sinf(2.0f * 3.14159265358979323846f * t / season_period);
+
+        if (seasonal_factor < 0.0f) seasonal_factor = 0.0f;
+
+        int food_this_tick = (int)roundf(cfg.food_spawn_quantity * seasonal_factor);
+
+        if (food_this_tick > 0) {
+            place_food<<<(food_this_tick + 255) / 256, 256>>>(
+                map.d_data,
+                food_this_tick,
+                d_random_states
+            );
+        }
+
+        cudaDeviceSynchronize();
 
         t++;
 
@@ -252,6 +272,9 @@ int main(int argc, char** argv) {
                 running = false;
             }
         }
+
+        current_creatures->RebuildCreatureMap(&map);
+        cudaDeviceSynchronize();
     }
 
     cudaFree(d_random_states);
