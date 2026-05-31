@@ -71,10 +71,14 @@ def read_compile_time_constants() -> dict:
         "HEIGHT",
         "MAX_CREATURE_N",
         "SENSORS_N",
+        "SEASON_SENSORS_N",
+        "TOTAL_SENSORS_N",
         "HIDDEN_N",
         "ACTIONS_N",
         "ACTION_TYPES_N",
         "FOOD_SPAWN_QUANTITY",
+        "WATER_SPAWN_QUANTITY",
+        "SEASON_PERIOD",
     ]
 
     result = {}

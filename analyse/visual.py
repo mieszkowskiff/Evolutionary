@@ -35,6 +35,11 @@ LAYER_SETTINGS = {
         "cmap": ["#ffffff", "#d8ffd8", "#4ee44e", "#00a000"],
         "gamma": 0.30,
     },
+    "water": {
+        "title": "Water",
+        "cmap": ["#ffffff", "#d8f0ff", "#55aaff", "#004fa3"],
+        "gamma": 0.35,
+    },
     "creature": {
         "title": "Creatures",
         "cmap": ["#ffffff", "#d7e1ff", "#4f73dd", "#001f6b"],
@@ -93,35 +98,49 @@ def read_map(run_dir: Path, tick: int, after_damage: bool = False) -> dict:
         danger = np.frombuffer(file.read(n * 4), dtype=np.float32).reshape(height, width).copy()
         creature = np.frombuffer(file.read(n * 4), dtype=np.float32).reshape(height, width).copy()
 
+        # New resource-branch map format appends water as the 4th float layer.
+        # Old runs only have food/danger/creature, so keep them readable.
+        water_bytes = file.read(n * 4)
+        if len(water_bytes) == n * 4:
+            water = np.frombuffer(water_bytes, dtype=np.float32).reshape(height, width).copy()
+        else:
+            water = np.zeros((height, width), dtype=np.float32)
+
     return {
         "width": width,
         "height": height,
         "food": food,
         "danger": danger,
         "creature": creature,
+        "water": water,
     }
 
 
 def map_to_rgb(map_data: dict) -> np.ndarray:
     """
-    RGB convention:
+    RGB convention for the resource branch:
       red   = danger
       green = food
-      blue  = creatures
+      blue  = water
+      white = creatures, added as a bright overlay
 
-    Black background. Overlaps become mixed colors.
+    This keeps both resources visible while still showing dense creature regions.
     """
     food = np.clip(np.nan_to_num(map_data["food"], nan=0.0), 0.0, 1.0)
+    water = np.clip(np.nan_to_num(map_data.get("water", 0.0), nan=0.0), 0.0, 1.0)
     danger = np.clip(np.nan_to_num(map_data["danger"], nan=0.0), 0.0, 1.0)
     creature = np.clip(np.nan_to_num(map_data["creature"], nan=0.0), 0.0, 1.0)
 
-    rgb = np.zeros((map_data["height"], map_data["width"], 3), dtype=np.uint8)
+    rgb = np.zeros((map_data["height"], map_data["width"], 3), dtype=np.float32)
 
-    rgb[..., 0] = (danger * 255).astype(np.uint8)
-    rgb[..., 1] = (food * 255).astype(np.uint8)
-    rgb[..., 2] = (creature * 255).astype(np.uint8)
+    rgb[..., 0] = danger
+    rgb[..., 1] = food
+    rgb[..., 2] = water
 
-    return rgb
+    # Creature density is an overlay instead of a separate color channel.
+    rgb = np.clip(rgb + 0.75 * creature[..., None], 0.0, 1.0)
+
+    return (rgb * 255).astype(np.uint8)
 
 
 def prepare_layer(layer: np.ndarray, use_log: bool) -> np.ndarray:
@@ -135,7 +154,7 @@ def prepare_layer(layer: np.ndarray, use_log: bool) -> np.ndarray:
 
 
 def get_percentile_for_layer(name: str, split_percentile: float, food_percentile: float) -> float:
-    if name == "food":
+    if name in {"food", "water"}:
         return food_percentile
     return split_percentile
 
@@ -151,6 +170,7 @@ def calculate_split_vmaxes(
     values = {
         "danger": [],
         "food": [],
+        "water": [],
         "creature": [],
     }
 
@@ -209,9 +229,9 @@ def save_split_frame(
     vmaxes: dict,
     use_log: bool,
 ) -> None:
-    layers = ["danger", "food", "creature"]
+    layers = ["danger", "food", "water", "creature"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(9, 3), dpi=120)
+    fig, axes = plt.subplots(1, 4, figsize=(12, 3), dpi=120)
     fig.patch.set_facecolor("white")
 
     for ax, name in zip(axes, layers):

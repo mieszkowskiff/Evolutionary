@@ -6,6 +6,7 @@
 
 struct MapData {
     float* food;
+    float* water;
     float* danger;
     float* creature;
 };
@@ -30,6 +31,7 @@ class Map {
 };
 
 __global__ void place_food(MapData* map, int max_food_count, curandState* random_states);
+__global__ void place_water(MapData* map, int max_water_count, curandState* random_states);
 
 __device__ int get_cell_index(int x, int y);
 

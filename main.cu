@@ -3,6 +3,7 @@
 #include <csignal>
 #include <unistd.h>
 #include <algorithm>
+#include <cmath>
 
 #include <cstdlib>
 #include <cstring>
@@ -197,7 +198,11 @@ int main(int argc, char** argv) {
 
     while (running && (cfg.max_ticks < 0 || t < cfg.max_ticks)) {
 
-        current_creatures->ChooseAction(&map, d_random_states);
+        float season_phase = 2.0f * 3.14159265358979323846f * t / SEASON_PERIOD;
+        float season_cos = cosf(season_phase);
+        float season_sin = sinf(season_phase);
+
+        current_creatures->ChooseAction(&map, d_random_states, season_cos, season_sin);
 
         #ifdef ENABLE_DISPLAY
         display.renderFrame(&map);
@@ -215,12 +220,12 @@ int main(int argc, char** argv) {
         bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
 
         // should_save
-        if (false) {
+        if (should_save) {
             map.Save(t);
             cudaDeviceSynchronize();
         }
 
-        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
+        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << current_creatures->action_types_counts[4] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
 
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
@@ -239,22 +244,25 @@ int main(int argc, char** argv) {
 
         cudaDeviceSynchronize();
 
-        float season_offset = 1.0f;
-        float season_amplitude = 0.5f;
-        float season_period = 500.0f;
-
-        float seasonal_factor =
-            season_offset +
-            season_amplitude * sinf(2.0f * 3.14159265358979323846f * t / season_period);
+        float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
         if (seasonal_factor < 0.0f) seasonal_factor = 0.0f;
 
         int food_this_tick = (int)roundf(cfg.food_spawn_quantity * seasonal_factor);
+        int water_this_tick = (int)roundf(cfg.food_spawn_quantity * seasonal_factor);
 
         if (food_this_tick > 0) {
             place_food<<<(food_this_tick + 255) / 256, 256>>>(
                 map.d_data,
                 food_this_tick,
+                d_random_states
+            );
+        }
+
+        if (water_this_tick > 0) {
+            place_water<<<(water_this_tick + 255) / 256, 256>>>(
+                map.d_data,
+                water_this_tick,
                 d_random_states
             );
         }

@@ -40,7 +40,7 @@ void contract(Creatures* old_creatures, Creatures* new_creatures) {
 __global__ void d_calculate_live_creatures(CreatureData* d_creatures, int* d_creature_alive, int count) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
     if (creature_index >= count) return;
-    d_creature_alive[creature_index] = d_creatures->energy[creature_index] > 0.0f ? 1 : 0;
+    d_creature_alive[creature_index] = (d_creatures->energy[creature_index] > 0.0f && d_creatures->water[creature_index] > 0.0f) ? 1 : 0;
 }
 
 __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_creatures, int* d_contracted_creature_indices, int* d_creature_alive, int count) {
@@ -58,6 +58,7 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
     d_new_creatures->x[new_creature_idx] = d_old_creatures->x[old_creature_index];
     d_new_creatures->y[new_creature_idx] = d_old_creatures->y[old_creature_index];
     d_new_creatures->energy[new_creature_idx] = d_old_creatures->energy[old_creature_index];
+    d_new_creatures->water[new_creature_idx] = d_old_creatures->water[old_creature_index];
     d_new_creatures->ids[new_creature_idx] = d_old_creatures->ids[old_creature_index];
     d_new_creatures->age[new_creature_idx] = d_old_creatures->age[old_creature_index];
 
@@ -68,7 +69,7 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
     }
 
     for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
+        for(int sensor_idx = 0; sensor_idx < TOTAL_SENSORS_N; sensor_idx++) {
             d_new_creatures->first_matrix[get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx)] = d_old_creatures->first_matrix[get_first_matrix_idx(old_creature_index, hidden_idx, sensor_idx)];
         }
     }
