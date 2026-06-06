@@ -12,7 +12,7 @@ static void SaveMapAfterDamage(Map* map, int tick) {
     cudaMemcpy(map->h_pinned->creature, map->h_data->creature, bytes, cudaMemcpyDeviceToHost);
 
     char fname[128];
-    snprintf(fname, sizeof(fname), "map_%06d_after_damage.bin", tick);
+    snprintf(fname, sizeof(fname), "save/map_%06d_after_damage.bin", tick);
 
     FILE* f = fopen(fname, "wb");
 
@@ -118,7 +118,7 @@ void Creatures::Save_tick(int tick) {
     cudaMemcpy(h_pinned->action_type, h_data->action_type, count * ACTIONS_N * sizeof(int8_t), cudaMemcpyDeviceToHost);
 
     char fname[64];
-    snprintf(fname, sizeof(fname), "creatures_%06d.bin", tick);
+    snprintf(fname, sizeof(fname), "save/creatures_%06d.bin", tick);
     FILE* f = fopen(fname, "wb");
     int sensors_n = SENSORS_N, actions_n = ACTIONS_N;
     fwrite(&count,     sizeof(int), 1, f);

@@ -29,10 +29,10 @@ extern "C" void signal_handler(int signum) {
 }
 
 struct RunConfig {
-    int initial_creatures = 4096;
+    int initial_creatures = INITIAL_CREATURE_N;
     unsigned long long seed = 1234ULL;
     int food_spawn_quantity = FOOD_SPAWN_QUANTITY;
-    int initial_food_multiplier = 128;
+    int initial_food_multiplier = INITIAL_FOOD_MULTIPLIER;
     int save_every = 1;
     int max_ticks = -1;
     int contract_every = 10;

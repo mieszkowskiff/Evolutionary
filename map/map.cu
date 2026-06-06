@@ -53,7 +53,7 @@ void Map::Save(int tick) {
     cudaMemcpy(h_pinned->creature, h_data->creature, bytes, cudaMemcpyDeviceToHost);
 
     char fname[64];
-    snprintf(fname, sizeof(fname), "map_%06d.bin", tick);
+    snprintf(fname, sizeof(fname), "save/map_%06d.bin", tick);
 
     FILE* f = fopen(fname, "wb");
     
@@ -146,7 +146,7 @@ __device__ int get_water_curve_y(int x, int curve_id) {
 
 __global__ void place_food(MapData* map, int max_food_count, curandState* random_states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= max_food_count) return;
+    if (idx >= max_food_count || idx >= MAX_CREATURE_N) return;
 
     curandState state = random_states[idx];
 
@@ -167,7 +167,7 @@ __global__ void place_food(MapData* map, int max_food_count, curandState* random
 
 __global__ void place_water(MapData* map, int max_water_count, curandState* random_states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= max_water_count) return;
+    if (idx >= max_water_count || idx >= MAX_CREATURE_N) return;
 
     curandState state = random_states[idx];
 
