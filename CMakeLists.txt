@@ -23,7 +23,6 @@ if(ENABLE_DISPLAY)
         main.cu
         creatures/creatures.cu
         map/map.cu
-        randomness/randomness.cu
         contract/contract.cu
         display/renderer.cu
     )
@@ -46,7 +45,6 @@ else()
         main.cu 
         creatures/creatures.cu
         map/map.cu
-        randomness/randomness.cu
         contract/contract.cu
     )
 

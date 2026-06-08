@@ -67,14 +67,14 @@ void Map::Save(int tick) {
     fclose(f);
 }
 
-void Map::refresh(curandState* random_states, unsigned long long seed, int max_food_count) {
+void Map::refresh(unsigned long long seed, int max_food_count) {
     cudaMemset(h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->food, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->water, 0, WIDTH * HEIGHT * sizeof(float));
 
-    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states, derive_seed(seed, 67890));
-    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states, derive_seed(seed, 54321));
+    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, derive_seed(seed, 67890));
+    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, derive_seed(seed, 54321));
 }
 
 __device__ int get_cell_index(int x, int y) {
@@ -144,13 +144,12 @@ __device__ int get_water_curve_y(int x, int curve_id) {
     return get_cell_index(x, iy) / WIDTH;
 }
 
-__global__ void place_food(MapData* map, int max_food_count, curandState* random_states, unsigned long long seed) {
+__global__ void place_food(MapData* map, int max_food_count, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_food_count || idx >= MAX_CREATURE_N) return;
 
     
     unsigned long long local_seed = derive_seed(seed, idx);
-    curandState state = random_states[idx];
 
     int rand_x = rand_int(derive_seed(local_seed, 12345), WIDTH);
     int rand_y;
@@ -164,15 +163,13 @@ __global__ void place_food(MapData* map, int max_food_count, curandState* random
     }
 
     map->food[get_cell_index(rand_x, rand_y)] = 1.0f;
-    random_states[idx] = state;
 }
 
-__global__ void place_water(MapData* map, int max_water_count, curandState* random_states, unsigned long long seed) {
+__global__ void place_water(MapData* map, int max_water_count, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_water_count || idx >= MAX_CREATURE_N) return;
 
     unsigned long long local_seed = derive_seed(seed, idx);
-    curandState state = random_states[idx];
 
     int rand_x = rand_int(derive_seed(local_seed, 54321), WIDTH);
     int rand_y;
@@ -186,7 +183,6 @@ __global__ void place_water(MapData* map, int max_water_count, curandState* rand
     }
 
     map->water[get_cell_index(rand_x, rand_y)] = 1.0f;
-    random_states[idx] = state;
 }
 
 __device__ float get_cell(MapData* map, int layer, int index) {

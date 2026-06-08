@@ -1,7 +1,6 @@
 #ifndef CREATURES_CUH
 # define CREATURES_CUH
 
-#include <curand_kernel.h>
 #include <cuda_fp8.h>
 #include "constants.h"
 #include "map/map.cuh"
@@ -64,14 +63,14 @@ class Creatures {
 
     CreatureData* h_pinned;
     
-    Creatures(curandState* state, unsigned long long seed, int count, long long *global_id_counter);
+    Creatures(unsigned long long seed, int count, long long *global_id_counter);
     ~Creatures();
 
-    void ChooseAction(Map* map, curandState* random_states, unsigned long long seed, float season_cos, float season_sin);    
+    void ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin);    
 
     void RebuildCreatureMap(Map* map);
 
-    void RunActions(Map* map, curandState* random_states, unsigned long long seed);
+    void RunActions(Map* map, unsigned long long seed);
 
     void Save_tick(int tick);
 };
@@ -80,25 +79,25 @@ __device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hi
 
 __device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx);
 
-__global__ void InitializeRandomCreatures(CreatureData* d_data, int count, curandState* states, unsigned long long seed, long long global_id_counter);
+__global__ void InitializeRandomCreatures(CreatureData* d_data, int count, unsigned long long seed, long long global_id_counter);
 
-__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned long long seed, int count, float season_cos, float season_sin);
+__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, unsigned long long seed, int count, float season_cos, float season_sin);
 
-__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, curandState& state, unsigned long long local_seed);
+__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed);
 
-__device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, curandState &state, unsigned long long local_seed);
+__device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, unsigned long long local_seed);
 
-__device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, curandState& state, unsigned long long local_seed);
+__device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, unsigned long long local_seed);
 
 
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
 __global__ void d_DrinkAction(MapData* d_map, CreatureData* d_creatures);
-__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned long long seed, unsigned int* d_successful_births, long long global_id_counter, int count,  int max_children, int reproduce_count);
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, unsigned long long seed, unsigned int* d_successful_births, long long global_id_counter, int count,  int max_children, int reproduce_count);
 __global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int count, unsigned int* d_attack_damage_kills);
 
-__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state, unsigned long long local_seed, long long new_id);
+__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, unsigned long long local_seed, long long new_id);
 
 __global__ void d_RebuildCreatureMap(MapData* d_map, CreatureData* d_creatures, int count);
 # endif

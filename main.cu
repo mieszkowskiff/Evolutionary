@@ -1,5 +1,4 @@
 #include <iostream>
-#include <curand_kernel.h>
 #include <csignal>
 #include <unistd.h>
 #include <algorithm>
@@ -15,7 +14,6 @@
 #include "constants.h"
 #include "creatures/creatures.cuh"
 #include "map/map.cuh"
-#include "randomness/randomness.cuh"
 #include "constants.h"
 #include "contract/contract.cuh"
 #ifdef ENABLE_DISPLAY
@@ -153,12 +151,6 @@ int main(int argc, char** argv) {
     sigaction(SIGINT, &action, NULL);
 
     cudaError cudaStatus;
- 
-
-    curandState* d_random_states;
-    cudaMalloc(&d_random_states, MAX_CREATURE_N * sizeof(curandState));
-
-    init_curand_states<<<(MAX_CREATURE_N + 255) / 256, 256>>>(d_random_states, cfg.seed);
 
     cudaDeviceSynchronize();
 
@@ -166,8 +158,8 @@ int main(int argc, char** argv) {
 
     *global_id_counter = 0;
 
-    Creatures creatures1 = Creatures(d_random_states, cfg.seed, cfg.initial_creatures, global_id_counter);
-    Creatures creatures2 = Creatures(d_random_states, cfg.seed, 0, global_id_counter);
+    Creatures creatures1 = Creatures(cfg.seed, cfg.initial_creatures, global_id_counter);
+    Creatures creatures2 = Creatures(cfg.seed, 0, global_id_counter);
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
@@ -180,7 +172,7 @@ int main(int argc, char** argv) {
 
     cudaDeviceSynchronize();
 
-    map.refresh(d_random_states, derive_seed(cfg.seed, 0), cfg.food_spawn_quantity * cfg.initial_food_multiplier);
+    map.refresh(derive_seed(cfg.seed, 0), cfg.food_spawn_quantity * cfg.initial_food_multiplier);
 
     cudaDeviceSynchronize();
 
@@ -203,7 +195,7 @@ int main(int argc, char** argv) {
         float season_cos = cosf(season_phase);
         float season_sin = sinf(season_phase);
 
-        current_creatures->ChooseAction(&map, d_random_states, derive_seed(seed, 98423), season_cos, season_sin);
+        current_creatures->ChooseAction(&map, derive_seed(seed, 98423), season_cos, season_sin);
 
         #ifdef ENABLE_DISPLAY
         display.renderFrame(&map);
@@ -241,7 +233,7 @@ int main(int argc, char** argv) {
             cudaDeviceSynchronize();
         }
 
-        current_creatures->RunActions(&map, d_random_states, derive_seed(seed, 4096));
+        current_creatures->RunActions(&map, derive_seed(seed, 4096));
 
         cudaDeviceSynchronize();
 
@@ -256,7 +248,6 @@ int main(int argc, char** argv) {
             place_food<<<(food_this_tick + 255) / 256, 256>>>(
                 map.d_data,
                 food_this_tick,
-                d_random_states,
                 derive_seed(seed, 12345)
             );
         }
@@ -265,7 +256,6 @@ int main(int argc, char** argv) {
             place_water<<<(water_this_tick + 255) / 256, 256>>>(
                 map.d_data,
                 water_this_tick,
-                d_random_states,
                 derive_seed(seed, 54321)
             );
         }
@@ -288,7 +278,6 @@ int main(int argc, char** argv) {
         cudaDeviceSynchronize();
     }
 
-    cudaFree(d_random_states);
     delete global_id_counter;
 
     return 0;
