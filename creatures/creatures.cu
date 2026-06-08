@@ -758,12 +758,12 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, cu
 }
 
 __device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, curandState& state, unsigned long long local_seed) {
-        float x_normal = curand_normal(&state) * SENSOR_STDDEV;
-        float y_normal = curand_normal(&state) * SENSOR_STDDEV;
-        
+        float x_normal = rand_normal(derive_seed(local_seed, 98043), 0.0f, SENSOR_STDDEV);
+        float y_normal = rand_normal(derive_seed(local_seed, 54321), 0.0f, SENSOR_STDDEV);
+
         int8_t x = static_cast<int8_t>(roundf(x_normal));
         int8_t y = static_cast<int8_t>(roundf(y_normal));
-        int8_t type = rand_int(local_seed, 10); // 0: food, 1: danger, 2: creature, 3: water, 4-9: empty
+        int8_t type = rand_int(derive_seed(local_seed, 12345), 10); // 0: food, 1: danger, 2: creature, 3: water, 4-9: empty
 
         creatures->sensor_x[sensor_index * MAX_CREATURE_N + creature_index] = x;
         creatures->sensor_y[sensor_index * MAX_CREATURE_N + creature_index] = y;
@@ -776,7 +776,8 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, cu
     for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
         for(int sensor_idx = 0; sensor_idx < TOTAL_SENSORS_N; sensor_idx++) {
             size_t idx = get_first_matrix_idx(creature_index, hidden_idx, sensor_idx);
-            creatures->first_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
+            //creatures->first_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
+            creatures->first_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 100000 + hidden_idx * TOTAL_SENSORS_N + sensor_idx)) * 2 - 1); // Random value between -1 and 1
         }
     }
 
@@ -784,14 +785,15 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, cu
     for(int output_idx = 0; output_idx < ACTIONS_N; output_idx++) {
         for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
             size_t idx = get_second_matrix_idx(creature_index, output_idx, hidden_idx);
-            creatures->second_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
+            //creatures->second_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
+            creatures->second_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 200000 + output_idx * HIDDEN_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
         }
     }
 
     // Bias
     for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
         size_t idx = (creature_index * HIDDEN_N) + hidden_idx;
-        creatures->bias[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
+        creatures->bias[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 300000 + creature_index * HIDDEN_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
     }
 }
 
@@ -801,7 +803,7 @@ __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int
 
     int8_t x = static_cast<int8_t>(roundf(x_normal));
     int8_t y = static_cast<int8_t>(roundf(y_normal));
-    int8_t type = curand(&state) % ACTION_TYPES_N; // 0: move, 1: eat, 2: attack, 3: reproduce, 4: drink
+    int8_t type = rand_int(derive_seed(local_seed, 12345), ACTION_TYPES_N); // 0: move, 1: eat, 2: attack, 3: reproduce, 4: drink
 
     creatures->action_x[action_index * MAX_CREATURE_N + creature_index] = x;
     creatures->action_y[action_index * MAX_CREATURE_N + creature_index] = y;
