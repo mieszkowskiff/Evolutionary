@@ -100,4 +100,6 @@ __global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int c
 __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, unsigned long long local_seed, long long new_id);
 
 __global__ void d_RebuildCreatureMap(MapData* d_map, CreatureData* d_creatures, int count);
+
+static void SaveMapAfterDamage(Map* map, int tick);
 # endif

@@ -22,6 +22,15 @@ if(ENABLE_DISPLAY)
     add_executable(Evolutionary 
         main.cu
         creatures/creatures.cu
+        creatures/choose_actions.cu
+        creatures/run_actions.cu
+        creatures/save.cu
+        creatures/initialization.cu
+        creatures/actions/move.cu
+        creatures/actions/eat.cu
+        creatures/actions/drink.cu
+        creatures/actions/attack.cu
+        creatures/actions/reproduce.cu
         map/map.cu
         contract/contract.cu
         display/renderer.cu
@@ -44,8 +53,18 @@ else()
         add_executable(Evolutionary 
         main.cu 
         creatures/creatures.cu
+        creatures/choose_actions.cu
+        creatures/run_actions.cu
+        creatures/save.cu
+        creatures/initialization.cu
+        creatures/actions/move.cu
+        creatures/actions/eat.cu
+        creatures/actions/drink.cu
+        creatures/actions/attack.cu
+        creatures/actions/reproduce.cu
         map/map.cu
         contract/contract.cu
+        
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
