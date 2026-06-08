@@ -3,6 +3,7 @@
 
 #include <cuda_fp8.h>
 #include <curand_kernel.h>
+#include "random/random.cuh"
 
 struct MapData {
     float* food;
@@ -27,11 +28,11 @@ class Map {
 
     void remove_creatures_from_map();
 
-    void refresh(curandState* random_states, int max_food_count);
+    void refresh(curandState* random_states, unsigned long long seed, int max_food_count);
 };
 
-__global__ void place_food(MapData* map, int max_food_count, curandState* random_states);
-__global__ void place_water(MapData* map, int max_water_count, curandState* random_states);
+__global__ void place_food(MapData* map, int max_food_count, curandState* random_states, unsigned long long seed);
+__global__ void place_water(MapData* map, int max_water_count, curandState* random_states, unsigned long long seed);
 
 __device__ int get_cell_index(int x, int y);
 

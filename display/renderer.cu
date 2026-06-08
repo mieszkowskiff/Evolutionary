@@ -25,12 +25,12 @@ __global__ void render_kernel(MapData* map_data, unsigned int* pbo_out, int widt
         float danger = map_data->danger[idx];
         float water = map_data->water[idx];
 
-        unsigned char r = 255, g = 255, b = 255, a = 255;
+        unsigned char r = 0, g = 0, b = 0, a = 0;
 
-        if (creature > 0) {r = 255, g = 0, b = 0, a = 255;}
-        if (food > 0) {r = 0, g = 255, b = 0, a = 255;}
+        if (creature > 0) {r = 255, a = 255;}
+        if (food > 0) {g = 255, a = 255;}
         //if (danger > 0) {r = 255;}
-        if (water > 0) {r = 0, g = 0, b = 255, a = 255;}
+        if (water > 0) {b = 255, a = 255;}
 
         pbo_out[idx] = (a << 24) | (b << 16) | (g << 8) | r;
     }

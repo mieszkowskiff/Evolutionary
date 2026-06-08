@@ -26,7 +26,7 @@ static void SaveMapAfterDamage(Map* map, int tick) {
     fclose(f);
 }
 
-Creatures::Creatures(curandState* state, int count, long long *global_id_counter) {
+Creatures::Creatures(curandState* state, unsigned long long seed, int count, long long *global_id_counter) {
 
     h_data = new CreatureData;
     this->count = count;
@@ -94,7 +94,7 @@ Creatures::Creatures(curandState* state, int count, long long *global_id_counter
 
 
     cudaDeviceSynchronize();
-    if (count > 0) InitializeRandomCreatures<<<(count + 255) / 256, 256>>>(d_data, count, state, *global_id_counter);
+    if (count > 0) InitializeRandomCreatures<<<(count + 255) / 256, 256>>>(d_data, count, state, seed, *global_id_counter);
     *global_id_counter += count;
     cudaDeviceSynchronize();
 }
@@ -225,16 +225,16 @@ void Creatures::RebuildCreatureMap(Map* map) {
     }
 }
 
-void Creatures::ChooseAction(Map* map, curandState* random_states, float season_cos, float season_sin) {
+void Creatures::ChooseAction(Map* map, curandState* random_states, unsigned long long seed, float season_cos, float season_sin) {
     cudaDeviceSynchronize();
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
-    if (count > 0) d_ActionStep<<<(count + 255) / 256, 256>>>(map->d_data, d_data, random_states, count, season_cos, season_sin);
+    if (count > 0) d_ActionStep<<<(count + 255) / 256, 256>>>(map->d_data, d_data, random_states, seed, count, season_cos, season_sin);
     cudaMemcpy(this->action_types_counts, h_data->action_types_counts, ACTION_TYPES_N * sizeof(unsigned int), cudaMemcpyDeviceToHost);
 
     //TODO: sort actions per type to make it more efficient (partial coalescing)
 }
 
-void Creatures::RunActions(Map* map, curandState* random_states) {
+void Creatures::RunActions(Map* map, curandState* random_states, unsigned long long seed) {
     static int action_tick = 0;
 
     h_attack_damage_kills = 0;
@@ -269,7 +269,7 @@ void Creatures::RunActions(Map* map, curandState* random_states) {
 
     int max_children = MAX_CREATURE_N - count;
 
-    if (reproduce_count > 0) d_ReproduceAction<<<(reproduce_count + 255) / 256, 256>>>(map->d_data, d_data, random_states, d_successful_births, *global_id_counter, count, max_children, reproduce_count);
+    if (reproduce_count > 0) d_ReproduceAction<<<(reproduce_count + 255) / 256, 256>>>(map->d_data, d_data, random_states, derive_seed(seed, 4093), d_successful_births, *global_id_counter, count, max_children, reproduce_count);
     
     cudaMemcpy(&h_successful_births, d_successful_births, sizeof(unsigned int), cudaMemcpyDeviceToHost);
     
@@ -473,9 +473,11 @@ __global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int c
     }
 }
 
-__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned int* d_successful_births, long long global_id_counter, int count, int max_children, int reproduce_count) {
+__global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned long long seed, unsigned int* d_successful_births, long long global_id_counter, int count, int max_children, int reproduce_count) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= reproduce_count) return;
+
+    unsigned long long local_seed = derive_seed(seed, idx);
 
     int parent_creature_index = d_creatures->reproduce_queue_creatures[idx];
     int8_t action_index = d_creatures->reproduce_queue_actions[idx];
@@ -514,10 +516,10 @@ __global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, cur
     d_creatures->x[new_creature_idx] = absolute_action_x;
     d_creatures->y[new_creature_idx] = absolute_action_y;
     
-    reproduce_creature(d_creatures, parent_creature_index, new_creature_idx, random_states[parent_creature_index], new_id);
+    reproduce_creature(d_creatures, parent_creature_index, new_creature_idx, random_states[parent_creature_index], local_seed, new_id);
 }
 
-__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state, long long new_id) {
+__device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, curandState& state, unsigned long long local_seed, long long new_id) {
 
     float energy = d_creatures->energy[parent_creature_index] - REPRODUCE_COST;
     float water = d_creatures->water[parent_creature_index] - REPRODUCE_WATER_COST;
@@ -535,7 +537,9 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
             size_t parent_idx = get_first_matrix_idx(parent_creature_index, hidden_idx, sensor_idx);
             size_t new_idx = get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx);
 
-            d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->first_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+            //d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->first_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+            d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, hidden_idx * TOTAL_SENSORS_N + sensor_idx), (float)d_creatures->first_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
+
         }
     }
 
@@ -545,7 +549,8 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
             size_t parent_idx = get_second_matrix_idx(parent_creature_index, output_idx, hidden_idx);
             size_t new_idx = get_second_matrix_idx(new_creature_idx, output_idx, hidden_idx);
 
-            d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->second_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+            //d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->second_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+            d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, HIDDEN_N * TOTAL_SENSORS_N + output_idx * HIDDEN_N + hidden_idx), (float)d_creatures->second_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
         }
     }
 
@@ -554,7 +559,7 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
             size_t parent_idx = parent_creature_index * HIDDEN_N + hidden_idx;
             size_t new_idx = new_creature_idx * HIDDEN_N + hidden_idx;
 
-            d_creatures->bias[new_idx] = __nv_fp8_e4m3((float)d_creatures->bias[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
+            d_creatures->bias[new_idx] = __nv_fp8_e4m3((float)d_creatures->bias[parent_idx] + rand_normal(derive_seed(local_seed, HIDDEN_N * TOTAL_SENSORS_N + hidden_idx), 0.0f, PARAMETER_MUTATION_STDDEV));
     }
 
     // Actions
@@ -572,28 +577,30 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
     }
 
     // Mutate sensors
-    int new_sensors_n = curand(&state) % SENSORS_MUTATION_PACE;
+    int new_sensors_n = rand_int(derive_seed(local_seed, 98765), SENSORS_MUTATION_PACE);
     for (int sensor = 0; sensor < new_sensors_n; sensor++)
     {
-        int sensor_idx = curand(&state) % SENSORS_N;
-        AddRandomSensors(d_creatures, new_creature_idx, sensor_idx, state);
+        int sensor_idx = rand_int(derive_seed(local_seed, 54321 + sensor), SENSORS_N);
+        AddRandomSensors(d_creatures, new_creature_idx, sensor_idx, state, derive_seed(local_seed, 98043 + sensor_idx));
     }
 
     //Mutate actions
-    int new_actions_n = curand(&state) % ACTIONS_MUTATION_PACE;
+    int new_actions_n = rand_int(derive_seed(local_seed, 98765), ACTIONS_MUTATION_PACE);
     for (int action = 0; action < new_actions_n; action++)
     {
-        int action_idx = curand(&state) % ACTIONS_N;
-        SetRandomAction(d_creatures, new_creature_idx, action_idx, state);
+        int action_idx = rand_int(derive_seed(local_seed, 54321 + action), ACTIONS_N);
+        SetRandomAction(d_creatures, new_creature_idx, action_idx, state, derive_seed(local_seed, 98043 + action_idx));
     }
 }
 
 
-__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states, int count, float season_cos, float season_sin) {
+__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandState* random_states, unsigned long long seed, int count, float season_cos, float season_sin) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
     if (creature_index >= count) return;
     if (d_creatures->energy[creature_index] <= 0.0f) return;
     if (d_creatures->water[creature_index] <= 0.0f) return;
+
+    unsigned long long local_seed = derive_seed(seed, creature_index);
 
     __nv_fp8_e4m3 input_neurons[TOTAL_SENSORS_N];
 
@@ -671,7 +678,8 @@ __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandSt
         }
     }
 
-    float random_val = curand_uniform(&random_states[creature_index]);
+    //float random_val = curand_uniform(&random_states[creature_index]);
+    float random_val = rand_float(derive_seed(local_seed, 4097));
     
     int selected_action = -1;
     float cumulative_probability = 0.0f;
@@ -720,15 +728,16 @@ __global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, curandSt
     }
 }
 
-__global__ void InitializeRandomCreatures(CreatureData* creatures, int count, curandState* states, long long global_id_counter) {
+__global__ void InitializeRandomCreatures(CreatureData* creatures, int count, curandState* states, unsigned long long seed, long long global_id_counter) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
     if (creature_index >= count) return;
 
+    unsigned long long local_seed = derive_seed(seed, creature_index);
     curandState state = states[creature_index];
 
     //Initialize position and energy
-    creatures->x[creature_index] = curand(&state) % WIDTH;
-    creatures->y[creature_index] = curand(&state) % HEIGHT;
+    creatures->x[creature_index] = rand_int(derive_seed(local_seed, 0), WIDTH);
+    creatures->y[creature_index] = rand_int(derive_seed(local_seed, 1), HEIGHT);
     creatures->energy[creature_index] = INITIAL_CREATURE_ENERGY;
     creatures->water[creature_index] = INITIAL_CREATURE_WATER;
     creatures->ids[creature_index] = global_id_counter + creature_index;
@@ -736,32 +745,32 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, cu
 
     // Initialize sensors
     for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
-        AddRandomSensors(creatures, creature_index, sensor_idx, state);
+        AddRandomSensors(creatures, creature_index, sensor_idx, state, derive_seed(local_seed, 2 + sensor_idx));
     }
 
     // Initialize network
-    AddRandomNetwork(creatures, creature_index, state);
+    AddRandomNetwork(creatures, creature_index, state, derive_seed(local_seed, 10000));
 
     // Initialize actions
     for(int action_idx = 0; action_idx < ACTIONS_N; action_idx++) {
-        SetRandomAction(creatures, creature_index, action_idx, state);
+        SetRandomAction(creatures, creature_index, action_idx, state, derive_seed(local_seed, 20000 + action_idx));
     }
 }
 
-__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, curandState& state) {
+__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, curandState& state, unsigned long long local_seed) {
         float x_normal = curand_normal(&state) * SENSOR_STDDEV;
         float y_normal = curand_normal(&state) * SENSOR_STDDEV;
         
         int8_t x = static_cast<int8_t>(roundf(x_normal));
         int8_t y = static_cast<int8_t>(roundf(y_normal));
-        int8_t type = curand(&state) % 10; // 0: food, 1: danger, 2: creature, 3: water, 4-9: empty
+        int8_t type = rand_int(local_seed, 10); // 0: food, 1: danger, 2: creature, 3: water, 4-9: empty
 
         creatures->sensor_x[sensor_index * MAX_CREATURE_N + creature_index] = x;
         creatures->sensor_y[sensor_index * MAX_CREATURE_N + creature_index] = y;
         creatures->sensor_type[sensor_index * MAX_CREATURE_N + creature_index] = type;
 }
 
-__device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, curandState &state) {
+__device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, curandState &state, unsigned long long local_seed) {
     
     // First matrix
     for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
@@ -786,18 +795,10 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, cu
     }
 }
 
-__device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx) {
-    return (hidden_idx * TOTAL_SENSORS_N * MAX_CREATURE_N) + (sensor_idx * MAX_CREATURE_N) + creature_idx;
-}
+__device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, curandState& state, unsigned long long local_seed) {
+    float x_normal = rand_normal(derive_seed(local_seed, 98043), 0.0f, ACTION_STDDEV);
+    float y_normal = rand_normal(derive_seed(local_seed, 54321), 0.0f, ACTION_STDDEV);
 
-__device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx) {
-    return (output_idx * HIDDEN_N * MAX_CREATURE_N) + (hidden_idx * MAX_CREATURE_N) + creature_idx;
-}
-
-__device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, curandState& state) {
-    float x_normal = curand_normal(&state) * ACTION_STDDEV;
-    float y_normal = curand_normal(&state) * ACTION_STDDEV;
-    
     int8_t x = static_cast<int8_t>(roundf(x_normal));
     int8_t y = static_cast<int8_t>(roundf(y_normal));
     int8_t type = curand(&state) % ACTION_TYPES_N; // 0: move, 1: eat, 2: attack, 3: reproduce, 4: drink
@@ -805,5 +806,13 @@ __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int
     creatures->action_x[action_index * MAX_CREATURE_N + creature_index] = x;
     creatures->action_y[action_index * MAX_CREATURE_N + creature_index] = y;
     creatures->action_type[action_index * MAX_CREATURE_N + creature_index] = type;
+}
+
+__device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx) {
+    return (hidden_idx * TOTAL_SENSORS_N * MAX_CREATURE_N) + (sensor_idx * MAX_CREATURE_N) + creature_idx;
+}
+
+__device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx) {
+    return (output_idx * HIDDEN_N * MAX_CREATURE_N) + (hidden_idx * MAX_CREATURE_N) + creature_idx;
 }
 

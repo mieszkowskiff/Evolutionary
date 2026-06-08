@@ -166,8 +166,8 @@ int main(int argc, char** argv) {
 
     *global_id_counter = 0;
 
-    Creatures creatures1 = Creatures(d_random_states, cfg.initial_creatures, global_id_counter);
-    Creatures creatures2 = Creatures(d_random_states, 0, global_id_counter);
+    Creatures creatures1 = Creatures(d_random_states, cfg.seed, cfg.initial_creatures, global_id_counter);
+    Creatures creatures2 = Creatures(d_random_states, cfg.seed, 0, global_id_counter);
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
 
     cudaDeviceSynchronize();
 
-    map.refresh(d_random_states, cfg.food_spawn_quantity * cfg.initial_food_multiplier);
+    map.refresh(d_random_states, derive_seed(cfg.seed, 0), cfg.food_spawn_quantity * cfg.initial_food_multiplier);
 
     cudaDeviceSynchronize();
 
@@ -198,11 +198,12 @@ int main(int argc, char** argv) {
 
     while (running && (cfg.max_ticks < 0 || t < cfg.max_ticks)) {
 
+        unsigned long long seed = derive_seed(cfg.seed, t + 54);
         float season_phase = 2.0f * 3.14159265358979323846f * t / SEASON_PERIOD;
         float season_cos = cosf(season_phase);
         float season_sin = sinf(season_phase);
 
-        current_creatures->ChooseAction(&map, d_random_states, season_cos, season_sin);
+        current_creatures->ChooseAction(&map, d_random_states, derive_seed(seed, 98423), season_cos, season_sin);
 
         #ifdef ENABLE_DISPLAY
         display.renderFrame(&map);
@@ -240,7 +241,7 @@ int main(int argc, char** argv) {
             cudaDeviceSynchronize();
         }
 
-        current_creatures->RunActions(&map, d_random_states);
+        current_creatures->RunActions(&map, d_random_states, derive_seed(seed, 4096));
 
         cudaDeviceSynchronize();
 
@@ -255,7 +256,8 @@ int main(int argc, char** argv) {
             place_food<<<(food_this_tick + 255) / 256, 256>>>(
                 map.d_data,
                 food_this_tick,
-                d_random_states
+                d_random_states,
+                derive_seed(seed, 12345)
             );
         }
 
@@ -263,7 +265,8 @@ int main(int argc, char** argv) {
             place_water<<<(water_this_tick + 255) / 256, 256>>>(
                 map.d_data,
                 water_this_tick,
-                d_random_states
+                d_random_states,
+                derive_seed(seed, 54321)
             );
         }
 

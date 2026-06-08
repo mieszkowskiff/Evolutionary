@@ -67,14 +67,14 @@ void Map::Save(int tick) {
     fclose(f);
 }
 
-void Map::refresh(curandState* random_states, int max_food_count) {
+void Map::refresh(curandState* random_states, unsigned long long seed, int max_food_count) {
     cudaMemset(h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->food, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->water, 0, WIDTH * HEIGHT * sizeof(float));
 
-    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states);
-    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states);
+    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states, derive_seed(seed, 67890));
+    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states, derive_seed(seed, 54321));
 }
 
 __device__ int get_cell_index(int x, int y) {
@@ -144,42 +144,45 @@ __device__ int get_water_curve_y(int x, int curve_id) {
     return get_cell_index(x, iy) / WIDTH;
 }
 
-__global__ void place_food(MapData* map, int max_food_count, curandState* random_states) {
+__global__ void place_food(MapData* map, int max_food_count, curandState* random_states, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_food_count || idx >= MAX_CREATURE_N) return;
 
+    
+    unsigned long long local_seed = derive_seed(seed, idx);
     curandState state = random_states[idx];
 
-    int rand_x = (int)(curand_uniform(&state) * WIDTH);
+    int rand_x = rand_int(derive_seed(local_seed, 12345), WIDTH);
     int rand_y;
 
-    if (curand_uniform(&state) < RESOURCE_RANDOM_FRACTION) {
-        rand_y = (int)(curand_uniform(&state) * HEIGHT);
+    if (rand_float(derive_seed(local_seed, 98765)) < RESOURCE_RANDOM_FRACTION) {
+        rand_y = rand_int(derive_seed(local_seed, 54321), HEIGHT);
     } else {
-        int curve_id = curand(&state) % FOOD_CURVES_N;
+        int curve_id = rand_int(derive_seed(local_seed, 67890), FOOD_CURVES_N);
         int curve_y = get_food_curve_y(rand_x, curve_id);
-        rand_y = curve_y + (int)roundf(curand_normal(&state) * RESOURCE_CURVE_STDDEV);
+        rand_y = rand_normal(derive_seed(local_seed, 13579), curve_y, RESOURCE_CURVE_STDDEV);
     }
 
     map->food[get_cell_index(rand_x, rand_y)] = 1.0f;
     random_states[idx] = state;
 }
 
-__global__ void place_water(MapData* map, int max_water_count, curandState* random_states) {
+__global__ void place_water(MapData* map, int max_water_count, curandState* random_states, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= max_water_count || idx >= MAX_CREATURE_N) return;
 
+    unsigned long long local_seed = derive_seed(seed, idx);
     curandState state = random_states[idx];
 
-    int rand_x = (int)(curand_uniform(&state) * WIDTH);
+    int rand_x = rand_int(derive_seed(local_seed, 54321), WIDTH);
     int rand_y;
 
-    if (curand_uniform(&state) < RESOURCE_RANDOM_FRACTION) {
-        rand_y = (int)(curand_uniform(&state) * HEIGHT);
+    if (rand_float(derive_seed(local_seed, 98765)) < RESOURCE_RANDOM_FRACTION) {
+        rand_y = rand_int(derive_seed(local_seed, 54321), HEIGHT);
     } else {
-        int curve_id = curand(&state) % WATER_CURVES_N;
+        int curve_id = rand_int(derive_seed(local_seed, 67890), WATER_CURVES_N);
         int curve_y = get_water_curve_y(rand_x, curve_id);
-        rand_y = curve_y + (int)roundf(curand_normal(&state) * RESOURCE_CURVE_STDDEV);
+        rand_y = rand_normal(derive_seed(local_seed, 13579), curve_y, RESOURCE_CURVE_STDDEV);
     }
 
     map->water[get_cell_index(rand_x, rand_y)] = 1.0f;
