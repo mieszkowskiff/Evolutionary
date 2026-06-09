@@ -19,13 +19,17 @@ Creatures::Creatures(unsigned long long seed, int count, long long *global_id_co
     cudaMalloc(&h_data->ids, MAX_CREATURE_N * sizeof(long long));
     cudaMalloc(&h_data->age, MAX_CREATURE_N * sizeof(int));
 
-    cudaMalloc(&h_data->sensor_x, MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
-    cudaMalloc(&h_data->sensor_y, MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
-    cudaMalloc(&h_data->sensor_type, MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
+    cudaMalloc(&h_data->sensor_x, MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
+    cudaMalloc(&h_data->sensor_y, MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
+    cudaMalloc(&h_data->sensor_type, MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
 
-    cudaMalloc(&h_data->first_matrix, MAX_CREATURE_N * TOTAL_SENSORS_N * HIDDEN_N * sizeof(__nv_fp8_e4m3));
-    cudaMalloc(&h_data->second_matrix, MAX_CREATURE_N * HIDDEN_N * ACTIONS_N * sizeof(__nv_fp8_e4m3));
-    cudaMalloc(&h_data->bias, MAX_CREATURE_N * HIDDEN_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->first_matrix, MAX_CREATURE_N * INPUT_NEURONS_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->second_matrix, MAX_CREATURE_N * HIDDEN_NEURONS_N * ACTIONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->bias, MAX_CREATURE_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
+
+    cudaMalloc(&h_data->input_layer_values, MAX_CREATURE_N * INPUT_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->hidden_layer_values, MAX_CREATURE_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->output_layer_values, MAX_CREATURE_N * ACTIONS_N * sizeof(float));
 
     cudaMalloc(&h_data->action_x, MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
     cudaMalloc(&h_data->action_y, MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
@@ -60,13 +64,15 @@ Creatures::Creatures(unsigned long long seed, int count, long long *global_id_co
     cudaMallocHost(&h_pinned->ids,          MAX_CREATURE_N * sizeof(long long));
     cudaMallocHost(&h_pinned->age,          MAX_CREATURE_N * sizeof(int));
     cudaMallocHost(&h_pinned->chosen_action,MAX_CREATURE_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_x,     MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_y,     MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_type,  MAX_CREATURE_N * SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_x,     MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_y,     MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
+    cudaMallocHost(&h_pinned->sensor_type,  MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
     cudaMallocHost(&h_pinned->action_x,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
     cudaMallocHost(&h_pinned->action_y,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
     cudaMallocHost(&h_pinned->action_type,   MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
-
+    cudaMallocHost(&h_pinned->input_layer_values, MAX_CREATURE_N * INPUT_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMallocHost(&h_pinned->hidden_layer_values, MAX_CREATURE_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMallocHost(&h_pinned->output_layer_values, MAX_CREATURE_N * ACTIONS_N * sizeof(__nv_fp8_e4m3));
 
 
     cudaDeviceSynchronize();
@@ -91,7 +97,7 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, un
     creatures->age[creature_index] = 0;
 
     // Initialize sensors
-    for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
+    for(int sensor_idx = 0; sensor_idx < MILIEU_SENSORS_N; sensor_idx++) {
         AddRandomSensors(creatures, creature_index, sensor_idx, derive_seed(local_seed, 2 + sensor_idx));
     }
 
@@ -128,6 +134,10 @@ Creatures::~Creatures() {
     cudaFree(h_data->action_y);
     cudaFree(h_data->action_type);
 
+    cudaFree(h_data->input_layer_values);
+    cudaFree(h_data->hidden_layer_values);
+    cudaFree(h_data->output_layer_values);
+
     cudaFree(h_data->chosen_action);
 
     cudaFree(h_data->move_queue_creatures);
@@ -154,6 +164,9 @@ Creatures::~Creatures() {
     cudaFreeHost(h_pinned->ids);
     cudaFreeHost(h_pinned->age);
     cudaFreeHost(h_pinned->chosen_action);
+    cudaFreeHost(h_pinned->input_layer_values);
+    cudaFreeHost(h_pinned->hidden_layer_values);
+    cudaFreeHost(h_pinned->output_layer_values);
 
     cudaFreeHost(h_pinned->sensor_x);
     cudaFreeHost(h_pinned->sensor_y);

@@ -9,6 +9,9 @@ Map::Map() {
 
     h_data = new MapData;
 
+    h_data->season_sin = 0.0f;
+    h_data->season_cos = 1.0f;
+
     cudaMalloc(&h_data->food, bytes);
     cudaMalloc(&h_data->water, bytes);
     cudaMalloc(&h_data->danger, bytes);
@@ -27,6 +30,9 @@ Map::Map() {
     cudaMallocHost(&h_pinned->water,    bytes);
     cudaMallocHost(&h_pinned->danger,   bytes);
     cudaMallocHost(&h_pinned->creature, bytes);
+
+    h_pinned->season_sin = 0.0f;
+    h_pinned->season_cos = 1.0f;
 }
 
 Map::~Map() {
@@ -185,12 +191,3 @@ __global__ void place_water(MapData* map, int max_water_count, unsigned long lon
     map->water[get_cell_index(rand_x, rand_y)] = 1.0f;
 }
 
-__device__ float get_cell(MapData* map, int layer, int index) {
-    switch (layer) {
-        case 0: return map->food[index];
-        case 1: return map->danger[index];
-        case 2: return map->creature[index];
-        case 3: return map->water[index];
-        default: return 0.0f; 
-    }
-}

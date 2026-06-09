@@ -142,6 +142,7 @@ RunConfig parse_args(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
+    cudaError cudaStatus;
     RunConfig cfg = parse_args(argc, argv);
     
     struct sigaction action;
@@ -149,8 +150,6 @@ int main(int argc, char** argv) {
     sigemptyset(&action.sa_mask);
     action.sa_flags = 0;
     sigaction(SIGINT, &action, NULL);
-
-    cudaError cudaStatus;
 
     cudaDeviceSynchronize();
 

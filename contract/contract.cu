@@ -62,27 +62,27 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
     d_new_creatures->ids[new_creature_idx] = d_old_creatures->ids[old_creature_index];
     d_new_creatures->age[new_creature_idx] = d_old_creatures->age[old_creature_index];
 
-    for (int i = 0; i < SENSORS_N; i++) {
+    for (int i = 0; i < MILIEU_SENSORS_N; i++) {
         d_new_creatures->sensor_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_x[i * MAX_CREATURE_N + old_creature_index];
         d_new_creatures->sensor_y[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_y[i * MAX_CREATURE_N + old_creature_index];
         d_new_creatures->sensor_type[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_type[i * MAX_CREATURE_N + old_creature_index];
     }
 
-    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        for(int sensor_idx = 0; sensor_idx < TOTAL_SENSORS_N; sensor_idx++) {
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+        for(int sensor_idx = 0; sensor_idx < INPUT_NEURONS_N; sensor_idx++) {
             d_new_creatures->first_matrix[get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx)] = d_old_creatures->first_matrix[get_first_matrix_idx(old_creature_index, hidden_idx, sensor_idx)];
         }
     }
 
     for(int action_idx = 0; action_idx < ACTIONS_N; action_idx++) {
-        for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+        for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
             d_new_creatures->second_matrix[get_second_matrix_idx(new_creature_idx, action_idx, hidden_idx)] = d_old_creatures->second_matrix[get_second_matrix_idx(old_creature_index, action_idx, hidden_idx)];
         }
     }
 
-    for (int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        d_new_creatures->bias[new_creature_idx * HIDDEN_N + hidden_idx] =
-            d_old_creatures->bias[old_creature_index * HIDDEN_N + hidden_idx];
+    for (int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+        d_new_creatures->bias[new_creature_idx * HIDDEN_NEURONS_N + hidden_idx] =
+            d_old_creatures->bias[old_creature_index * HIDDEN_NEURONS_N + hidden_idx];
     }
 
     for (int i = 0; i < ACTIONS_N; i++) {

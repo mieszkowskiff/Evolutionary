@@ -9,6 +9,9 @@ struct MapData {
     float* water;
     float* danger;
     float* creature;
+
+    float season_sin;
+    float season_cos;
 };
 
 

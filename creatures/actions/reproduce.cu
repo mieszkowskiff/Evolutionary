@@ -60,34 +60,34 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
     d_creatures->age[new_creature_idx] = 0;
 
     // First matrix
-    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        for(int sensor_idx = 0; sensor_idx < TOTAL_SENSORS_N; sensor_idx++) {
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+        for(int sensor_idx = 0; sensor_idx < INPUT_NEURONS_N; sensor_idx++) {
             size_t parent_idx = get_first_matrix_idx(parent_creature_index, hidden_idx, sensor_idx);
             size_t new_idx = get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx);
 
             //d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->first_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
-            d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, hidden_idx * TOTAL_SENSORS_N + sensor_idx), (float)d_creatures->first_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
+            d_creatures->first_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, hidden_idx * INPUT_NEURONS_N + sensor_idx), (float)d_creatures->first_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
 
         }
     }
 
     // Second matrix
     for(int output_idx = 0; output_idx < ACTIONS_N; output_idx++) {
-        for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+        for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
             size_t parent_idx = get_second_matrix_idx(parent_creature_index, output_idx, hidden_idx);
             size_t new_idx = get_second_matrix_idx(new_creature_idx, output_idx, hidden_idx);
 
             //d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3((float)d_creatures->second_matrix[parent_idx] + curand_normal(&state) * PARAMETER_MUTATION_STDDEV);
-            d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, HIDDEN_N * TOTAL_SENSORS_N + output_idx * HIDDEN_N + hidden_idx), (float)d_creatures->second_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
+            d_creatures->second_matrix[new_idx] = __nv_fp8_e4m3(rand_normal(derive_seed(local_seed, HIDDEN_NEURONS_N * INPUT_NEURONS_N + output_idx * HIDDEN_NEURONS_N + hidden_idx), (float)d_creatures->second_matrix[parent_idx], PARAMETER_MUTATION_STDDEV));
         }
     }
 
     // Bias
-    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-            size_t parent_idx = parent_creature_index * HIDDEN_N + hidden_idx;
-            size_t new_idx = new_creature_idx * HIDDEN_N + hidden_idx;
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+            size_t parent_idx = parent_creature_index * HIDDEN_NEURONS_N + hidden_idx;
+            size_t new_idx = new_creature_idx * HIDDEN_NEURONS_N + hidden_idx;
 
-            d_creatures->bias[new_idx] = __nv_fp8_e4m3((float)d_creatures->bias[parent_idx] + rand_normal(derive_seed(local_seed, HIDDEN_N * TOTAL_SENSORS_N + hidden_idx), 0.0f, PARAMETER_MUTATION_STDDEV));
+            d_creatures->bias[new_idx] = __nv_fp8_e4m3((float)d_creatures->bias[parent_idx] + rand_normal(derive_seed(local_seed, HIDDEN_NEURONS_N * INPUT_NEURONS_N + hidden_idx), 0.0f, PARAMETER_MUTATION_STDDEV));
     }
 
     // Actions
@@ -98,7 +98,7 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
     }
 
     // Sensors
-    for(int sensor_idx = 0; sensor_idx < SENSORS_N; sensor_idx++) {
+    for(int sensor_idx = 0; sensor_idx < MILIEU_SENSORS_N; sensor_idx++) {
         d_creatures->sensor_x[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_x[sensor_idx * MAX_CREATURE_N + parent_creature_index];
         d_creatures->sensor_y[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_y[sensor_idx * MAX_CREATURE_N + parent_creature_index];
         d_creatures->sensor_type[sensor_idx * MAX_CREATURE_N + new_creature_idx] = d_creatures->sensor_type[sensor_idx * MAX_CREATURE_N + parent_creature_index];
@@ -108,7 +108,7 @@ __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creatur
     int new_sensors_n = rand_int(derive_seed(local_seed, 98765), SENSORS_MUTATION_PACE);
     for (int sensor = 0; sensor < new_sensors_n; sensor++)
     {
-        int sensor_idx = rand_int(derive_seed(local_seed, 54321 + sensor), SENSORS_N);
+        int sensor_idx = rand_int(derive_seed(local_seed, 54321 + sensor), MILIEU_SENSORS_N);
         AddRandomSensors(d_creatures, new_creature_idx, sensor_idx, derive_seed(local_seed, 98043 + sensor_idx));
     }
 

@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "map/map.cuh"
 #include "random/random.cuh"
+#include "creatures/helpers.cuh"
 
 struct CreatureData {
 
@@ -32,6 +33,10 @@ struct CreatureData {
     int8_t* action_type;
 
     int8_t* chosen_action;
+
+    __nv_fp8_e4m3* input_layer_values;
+    __nv_fp8_e4m3* hidden_layer_values;
+    float* output_layer_values;
 
     unsigned int* move_queue_creatures;
     unsigned int* eat_queue_creatures;
@@ -75,13 +80,9 @@ class Creatures {
     void Save_tick(int tick);
 };
 
-__device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx);
 
-__device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx);
 
 __global__ void InitializeRandomCreatures(CreatureData* d_data, int count, unsigned long long seed, long long global_id_counter);
-
-__global__ void d_ActionStep(MapData* d_map, CreatureData* d_creatures, unsigned long long seed, int count, float season_cos, float season_sin);
 
 __device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed);
 
@@ -89,12 +90,18 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, un
 
 __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, unsigned long long local_seed);
 
+__global__ void d_PerceveMap(MapData* d_map, CreatureData* d_creatures, int count);
 
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
+
 __global__ void d_EatAction(MapData* d_map, CreatureData* d_creatures);
+
 __global__ void d_AttackAction(MapData* d_map, CreatureData* d_creatures);
+
 __global__ void d_DrinkAction(MapData* d_map, CreatureData* d_creatures);
+
 __global__ void d_ReproduceAction(MapData* d_map, CreatureData* d_creatures, unsigned long long seed, unsigned int* d_successful_births, long long global_id_counter, int count,  int max_children, int reproduce_count);
+
 __global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int count, unsigned int* d_attack_damage_kills);
 
 __device__ void reproduce_creature(CreatureData* d_creatures, int parent_creature_index, int new_creature_idx, unsigned long long local_seed, long long new_id);

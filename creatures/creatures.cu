@@ -102,27 +102,25 @@ __device__ void AddRandomSensors(CreatureData* creatures, int creature_index, in
 __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, unsigned long long local_seed) {
     
     // First matrix
-    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        for(int sensor_idx = 0; sensor_idx < TOTAL_SENSORS_N; sensor_idx++) {
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+        for(int sensor_idx = 0; sensor_idx < INPUT_NEURONS_N; sensor_idx++) {
             size_t idx = get_first_matrix_idx(creature_index, hidden_idx, sensor_idx);
-            //creatures->first_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
-            creatures->first_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 100000 + hidden_idx * TOTAL_SENSORS_N + sensor_idx)) * 2 - 1); // Random value between -1 and 1
+            creatures->first_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 100000 + hidden_idx * INPUT_NEURONS_N + sensor_idx)) * 2 - 1); // Random value between -1 and 1
         }
     }
 
     // Second matrix
     for(int output_idx = 0; output_idx < ACTIONS_N; output_idx++) {
-        for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
+        for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
             size_t idx = get_second_matrix_idx(creature_index, output_idx, hidden_idx);
-            //creatures->second_matrix[idx] = __nv_fp8_e4m3(curand_uniform(&state) * 2 - 1); // Random value between -1 and 1
-            creatures->second_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 200000 + output_idx * HIDDEN_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
+            creatures->second_matrix[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 200000 + output_idx * HIDDEN_NEURONS_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
         }
     }
 
     // Bias
-    for(int hidden_idx = 0; hidden_idx < HIDDEN_N; hidden_idx++) {
-        size_t idx = (creature_index * HIDDEN_N) + hidden_idx;
-        creatures->bias[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 300000 + creature_index * HIDDEN_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
+    for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
+        size_t idx = (creature_index * HIDDEN_NEURONS_N) + hidden_idx;
+        creatures->bias[idx] = __nv_fp8_e4m3(rand_float(derive_seed(local_seed, 300000 + creature_index * HIDDEN_NEURONS_N + hidden_idx)) * 2 - 1); // Random value between -1 and 1
     }
 }
 
@@ -139,11 +137,4 @@ __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int
     creatures->action_type[action_index * MAX_CREATURE_N + creature_index] = type;
 }
 
-__device__ size_t get_first_matrix_idx(int creature_idx, int hidden_idx, int sensor_idx) {
-    return (hidden_idx * TOTAL_SENSORS_N * MAX_CREATURE_N) + (sensor_idx * MAX_CREATURE_N) + creature_idx;
-}
-
-__device__ size_t get_second_matrix_idx(int creature_idx, int output_idx, int hidden_idx) {
-    return (output_idx * HIDDEN_N * MAX_CREATURE_N) + (hidden_idx * MAX_CREATURE_N) + creature_idx;
-}
 
