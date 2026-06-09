@@ -77,6 +77,8 @@ class Creatures {
 
     void RunActions(Map* map, unsigned long long seed);
 
+    void ReproduceAction(unsigned long long seed);
+
     void Save_tick(int tick);
 };
 
@@ -84,13 +86,11 @@ class Creatures {
 
 __global__ void InitializeRandomCreatures(CreatureData* d_data, int count, unsigned long long seed, long long global_id_counter);
 
-__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed);
+__device__ void SetRandomSensor(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed);
 
 __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, unsigned long long local_seed);
 
 __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, unsigned long long local_seed);
-
-__global__ void d_PerceveMap(MapData* d_map, CreatureData* d_creatures, int count);
 
 __global__ void d_MoveAction(MapData* d_map, CreatureData* d_creatures);
 

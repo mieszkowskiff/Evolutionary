@@ -33,7 +33,7 @@ struct RunConfig {
     int initial_food_multiplier = INITIAL_FOOD_MULTIPLIER;
     int save_every = 1;
     int max_ticks = -1;
-    int contract_every = 10;
+    int contract_every = 2;
     int save_creatures = 1;
 };
 
@@ -212,10 +212,10 @@ int main(int argc, char** argv) {
         bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
 
         // should_save
-        if (should_save) {
-            map.Save(t);
-            cudaDeviceSynchronize();
-        }
+        // if (should_save) {
+        //     map.Save(t);
+        //     cudaDeviceSynchronize();
+        // }
 
         std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << current_creatures->action_types_counts[4] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
 
@@ -227,10 +227,10 @@ int main(int argc, char** argv) {
         // cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
 
-        if (should_save && cfg.save_creatures) {
-            current_creatures->Save_tick(t);
-            cudaDeviceSynchronize();
-        }
+        // if (should_save && cfg.save_creatures) {
+        //     current_creatures->Save_tick(t);
+        //     cudaDeviceSynchronize();
+        // }
 
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
 

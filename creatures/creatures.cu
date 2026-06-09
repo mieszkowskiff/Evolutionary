@@ -86,17 +86,17 @@ __global__ void d_ProcessEnergy(MapData* d_map, CreatureData* d_creatures, int c
     }
 }
 
-__device__ void AddRandomSensors(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed) {
-        float x_normal = rand_normal(derive_seed(local_seed, 98043), 0.0f, SENSOR_STDDEV);
-        float y_normal = rand_normal(derive_seed(local_seed, 54321), 0.0f, SENSOR_STDDEV);
+__device__ void SetRandomSensor(CreatureData* creatures, int creature_index, int sensor_index, unsigned long long local_seed) {
+        float x_normal = rand_normal(derive_seed(local_seed, 87943), 0.0f, SENSOR_STDDEV);
+        float y_normal = rand_normal(derive_seed(local_seed, 57839), 0.0f, SENSOR_STDDEV);
 
         int8_t x = static_cast<int8_t>(roundf(x_normal));
         int8_t y = static_cast<int8_t>(roundf(y_normal));
         int8_t type = rand_int(derive_seed(local_seed, 12345), 10); // 0: food, 1: danger, 2: creature, 3: water, 4-9: empty
 
-        creatures->sensor_x[sensor_index * MAX_CREATURE_N + creature_index] = x;
-        creatures->sensor_y[sensor_index * MAX_CREATURE_N + creature_index] = y;
-        creatures->sensor_type[sensor_index * MAX_CREATURE_N + creature_index] = type;
+        creatures->sensor_x[get_sensor_idx(creature_index, sensor_index)] = x;
+        creatures->sensor_y[get_sensor_idx(creature_index, sensor_index)] = y;
+        creatures->sensor_type[get_sensor_idx(creature_index, sensor_index)] = type;
 }
 
 __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, unsigned long long local_seed) {
@@ -125,8 +125,8 @@ __device__ void AddRandomNetwork(CreatureData* creatures, int creature_index, un
 }
 
 __device__ void SetRandomAction(CreatureData* creatures, int creature_index, int action_index, unsigned long long local_seed) {
-    float x_normal = rand_normal(derive_seed(local_seed, 98043), 0.0f, ACTION_STDDEV);
-    float y_normal = rand_normal(derive_seed(local_seed, 54321), 0.0f, ACTION_STDDEV);
+    float x_normal = rand_normal(derive_seed(local_seed, 89347), 0.0f, ACTION_STDDEV);
+    float y_normal = rand_normal(derive_seed(local_seed, 29838), 0.0f, ACTION_STDDEV);
 
     int8_t x = static_cast<int8_t>(roundf(x_normal));
     int8_t y = static_cast<int8_t>(roundf(y_normal));

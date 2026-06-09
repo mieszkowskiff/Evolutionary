@@ -1,3 +1,7 @@
+#ifndef HELPERS_CUH
+#define HELPERS_CUH
+
+
 #include "constants.h"
 #include "map/map.cuh"
 
@@ -42,3 +46,5 @@ __device__ inline int get_output_layer_value_idx(int creature_index, int output_
 __device__ inline int get_action_idx(int creature_index, int action_index){
     return action_index * MAX_CREATURE_N + creature_index;
 }
+
+#endif

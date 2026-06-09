@@ -23,7 +23,7 @@ Creatures::Creatures(unsigned long long seed, int count, long long *global_id_co
     cudaMalloc(&h_data->sensor_y, MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
     cudaMalloc(&h_data->sensor_type, MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
 
-    cudaMalloc(&h_data->first_matrix, MAX_CREATURE_N * INPUT_NEURONS_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
+    cudaMalloc(&h_data->first_matrix, (size_t)MAX_CREATURE_N * INPUT_NEURONS_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
     cudaMalloc(&h_data->second_matrix, MAX_CREATURE_N * HIDDEN_NEURONS_N * ACTIONS_N * sizeof(__nv_fp8_e4m3));
     cudaMalloc(&h_data->bias, MAX_CREATURE_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
 
@@ -98,7 +98,7 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, un
 
     // Initialize sensors
     for(int sensor_idx = 0; sensor_idx < MILIEU_SENSORS_N; sensor_idx++) {
-        AddRandomSensors(creatures, creature_index, sensor_idx, derive_seed(local_seed, 2 + sensor_idx));
+        SetRandomSensor(creatures, creature_index, sensor_idx, derive_seed(local_seed, 2 + sensor_idx));
     }
 
     // Initialize network

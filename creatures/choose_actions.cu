@@ -18,8 +18,8 @@ __global__ void d_PerceveMap(MapData* d_map, CreatureData* d_creatures, int coun
     int8_t sensor_y = d_creatures->sensor_y[get_sensor_idx(creature_index, sensor_index)];
     int8_t sensor_type = d_creatures->sensor_type[get_sensor_idx(creature_index, sensor_index)];
 
-    unsigned int creature_x = d_creatures->x[creature_index];
-    unsigned int creature_y = d_creatures->y[creature_index];
+    int creature_x = d_creatures->x[creature_index];
+    int creature_y = d_creatures->y[creature_index];
 
     int sensor_position = get_cell_index(creature_x + sensor_x, creature_y + sensor_y);
 
