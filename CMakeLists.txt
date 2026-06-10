@@ -24,7 +24,6 @@ if(ENABLE_DISPLAY)
         creatures/creatures.cu
         creatures/choose_actions.cu
         creatures/run_actions.cu
-        creatures/save.cu
         creatures/initialization.cu
         creatures/actions/move.cu
         creatures/actions/eat.cu
@@ -55,7 +54,6 @@ else()
         creatures/creatures.cu
         creatures/choose_actions.cu
         creatures/run_actions.cu
-        creatures/save.cu
         creatures/initialization.cu
         creatures/actions/move.cu
         creatures/actions/eat.cu

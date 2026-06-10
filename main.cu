@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
 
         bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
 
-        // should_save
+        //should_save
         // if (should_save) {
         //     map.Save(t);
         //     cudaDeviceSynchronize();
