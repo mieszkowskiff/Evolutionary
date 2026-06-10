@@ -16,6 +16,9 @@
 #include "map/map.cuh"
 #include "constants.h"
 #include "contract/contract.cuh"
+#include <thread>
+#include "save/save.hpp"
+
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
 #endif
@@ -160,6 +163,8 @@ int main(int argc, char** argv) {
     Creatures creatures1 = Creatures(cfg.seed, cfg.initial_creatures, global_id_counter);
     Creatures creatures2 = Creatures(cfg.seed, 0, global_id_counter);
 
+    SaveManager saveManager = SaveManager();
+
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
     
@@ -187,7 +192,9 @@ int main(int argc, char** argv) {
 
     int t = 0;
 
-    while (running && (cfg.max_ticks < 0 || t < cfg.max_ticks)) {
+    std::thread save_worker;
+
+    while (running && t != cfg.max_ticks) {
 
         unsigned long long seed = derive_seed(cfg.seed, t + 54);
         float season_phase = 2.0f * 3.14159265358979323846f * t / SEASON_PERIOD;
@@ -209,14 +216,6 @@ int main(int argc, char** argv) {
             running = false;
         }
 
-        bool should_save = (cfg.save_every > 0) && (t % cfg.save_every == 0);
-
-        //should_save
-        // if (should_save) {
-        //     map.Save(t);
-        //     cudaDeviceSynchronize();
-        // }
-
         std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << current_creatures->action_types_counts[4] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
 
         cudaStatus = cudaGetLastError();
@@ -224,13 +223,7 @@ int main(int argc, char** argv) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
-        // cudaMemset(map.h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
-
-        // if (should_save && cfg.save_creatures) {
-        //     current_creatures->Save_tick(t);
-        //     cudaDeviceSynchronize();
-        // }
 
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
 
@@ -263,18 +256,26 @@ int main(int argc, char** argv) {
 
         t++;
 
-        if (!(t % cfg.contract_every)) {
-            std::cout << "Contracting..." << std::endl;
-            contract(current_creatures, next_creatures);
-            std::swap(current_creatures, next_creatures);
-            if (current_creatures->count == 0) {
-                std::cout << "All creatures died. Ending simulation." << std::endl;
-                running = false;
-            }
+        if (save_worker.joinable()) {
+            save_worker.join();
         }
+
+        contract(current_creatures, next_creatures);
+        std::swap(current_creatures, next_creatures);
+
+        save_worker = std::thread(&SaveManager::Save, &saveManager, next_creatures);
 
         current_creatures->RebuildCreatureMap(&map);
         cudaDeviceSynchronize();
+
+        if (current_creatures->count == 0) {
+            std::cout << "All creatures died. Ending simulation." << std::endl;
+            running = false;
+        }
+    }
+
+    if (save_worker.joinable()) {
+        save_worker.join();
     }
 
     delete global_id_counter;
