@@ -10,7 +10,6 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 
 find_package(CUDAToolkit REQUIRED)
 
-
 option(ENABLE_DISPLAY "Build with OpenGL graphical display" ON)
 
 if(ENABLE_DISPLAY)

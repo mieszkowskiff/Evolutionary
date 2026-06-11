@@ -4,6 +4,8 @@
 #include <iostream>
 #include "creatures/creatures.cuh"
 
+
+
 class SaveManager {
     public:
     SaveManager() = default;

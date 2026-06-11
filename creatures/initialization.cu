@@ -56,24 +56,6 @@ Creatures::Creatures(unsigned long long seed, int count, long long *global_id_co
 
     action_types_counts = new unsigned int[ACTION_TYPES_N];
 
-    h_pinned = new CreatureData;
-    cudaMallocHost(&h_pinned->x,            MAX_CREATURE_N * sizeof(unsigned int));
-    cudaMallocHost(&h_pinned->y,            MAX_CREATURE_N * sizeof(unsigned int));
-    cudaMallocHost(&h_pinned->energy,       MAX_CREATURE_N * sizeof(float));
-    cudaMallocHost(&h_pinned->water,        MAX_CREATURE_N * sizeof(float));
-    cudaMallocHost(&h_pinned->ids,          MAX_CREATURE_N * sizeof(long long));
-    cudaMallocHost(&h_pinned->age,          MAX_CREATURE_N * sizeof(int));
-    cudaMallocHost(&h_pinned->chosen_action,MAX_CREATURE_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_x,     MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_y,     MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->sensor_type,  MAX_CREATURE_N * MILIEU_SENSORS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->action_x,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->action_y,      MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->action_type,   MAX_CREATURE_N * ACTIONS_N * sizeof(int8_t));
-    cudaMallocHost(&h_pinned->input_layer_values, MAX_CREATURE_N * INPUT_NEURONS_N * sizeof(__nv_fp8_e4m3));
-    cudaMallocHost(&h_pinned->hidden_layer_values, MAX_CREATURE_N * HIDDEN_NEURONS_N * sizeof(__nv_fp8_e4m3));
-    cudaMallocHost(&h_pinned->output_layer_values, MAX_CREATURE_N * ACTIONS_N * sizeof(__nv_fp8_e4m3));
-
 
     cudaDeviceSynchronize();
     if (count > 0) InitializeRandomCreatures<<<(count + 255) / 256, 256>>>(d_data, count, seed, *global_id_counter);
@@ -157,24 +139,5 @@ Creatures::~Creatures() {
     cudaFree(d_data);
     delete h_data;
 
-    cudaFreeHost(h_pinned->x);
-    cudaFreeHost(h_pinned->y);
-    cudaFreeHost(h_pinned->energy);
-    cudaFreeHost(h_pinned->water);
-    cudaFreeHost(h_pinned->ids);
-    cudaFreeHost(h_pinned->age);
-    cudaFreeHost(h_pinned->chosen_action);
-    cudaFreeHost(h_pinned->input_layer_values);
-    cudaFreeHost(h_pinned->hidden_layer_values);
-    cudaFreeHost(h_pinned->output_layer_values);
-
-    cudaFreeHost(h_pinned->sensor_x);
-    cudaFreeHost(h_pinned->sensor_y);
-    cudaFreeHost(h_pinned->sensor_type);
-    cudaFreeHost(h_pinned->action_x);
-    cudaFreeHost(h_pinned->action_y);
-    cudaFreeHost(h_pinned->action_type);
-
-    delete h_pinned;
     delete[] action_types_counts;
 }

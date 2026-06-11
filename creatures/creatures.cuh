@@ -65,8 +65,6 @@ class Creatures {
     
     CreatureData* d_data;
     CreatureData* h_data;
-
-    CreatureData* h_pinned;
     
     Creatures(unsigned long long seed, int count, long long *global_id_counter);
     ~Creatures();
