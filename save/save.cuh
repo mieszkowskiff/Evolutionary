@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include "creatures/creatures.cuh"
+#include "creatures/helpers.cuh"
 
 
 
@@ -11,9 +12,9 @@ class SaveManager {
     SaveManager() = default;
     ~SaveManager() = default;
 
-    void Save(const Creatures* creatures) {
-        std::cout << "Saving " << creatures->count << " creatures..." << std::endl;
-    }
+    void Save(const Creatures* creatures, int start_creature_index);
+
+    void SaveMap(const Map* map);
 };
 
 

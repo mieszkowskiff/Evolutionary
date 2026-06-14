@@ -33,7 +33,7 @@ struct CreatureData {
     int8_t* action_type;
 
     int8_t* chosen_action;
-
+ 
     __nv_fp8_e4m3* input_layer_values;
     __nv_fp8_e4m3* hidden_layer_values;
     float* output_layer_values;

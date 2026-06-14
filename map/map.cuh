@@ -21,7 +21,6 @@ class Map {
     public:
     MapData* d_data;
     MapData* h_data;
-    MapData* h_pinned;
 
     Map();
     ~Map();

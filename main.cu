@@ -17,7 +17,8 @@
 #include "constants.h"
 #include "contract/contract.cuh"
 #include <thread>
-#include "save/save.hpp"
+#include "save/save.cuh"
+#include <chrono>
 
 #ifdef ENABLE_DISPLAY
 #include "display/renderer.h"
@@ -192,7 +193,9 @@ int main(int argc, char** argv) {
 
     int t = 0;
 
-    std::thread save_worker;
+    std::thread save_creatures_worker;
+    std::thread save_map_worker;
+
 
     while (running && t != cfg.max_ticks) {
 
@@ -223,11 +226,20 @@ int main(int argc, char** argv) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
+        save_map_worker = std::thread(&SaveManager::SaveMap, &saveManager, &map);
+        
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
-
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
-
         cudaDeviceSynchronize();
+
+        if (save_map_worker.joinable()) {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            save_map_worker.join();
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "Time spent waiting in map join(): " << duration.count() << " ms\n";
+        }
+
 
         float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
@@ -256,14 +268,18 @@ int main(int argc, char** argv) {
 
         t++;
 
-        if (save_worker.joinable()) {
-            save_worker.join();
+        if (save_creatures_worker.joinable()) {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            save_creatures_worker.join();
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "Time spent waiting in join(): " << duration.count() << " ms\n";
         }
 
         contract(current_creatures, next_creatures);
         std::swap(current_creatures, next_creatures);
 
-        save_worker = std::thread(&SaveManager::Save, &saveManager, next_creatures);
+        save_creatures_worker = std::thread(&SaveManager::Save, &saveManager, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION]);
 
         current_creatures->RebuildCreatureMap(&map);
         cudaDeviceSynchronize();
@@ -274,8 +290,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (save_worker.joinable()) {
-        save_worker.join();
+    if (save_creatures_worker.joinable()) {
+        save_creatures_worker.join();
     }
 
     delete global_id_counter;

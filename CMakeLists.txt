@@ -32,6 +32,7 @@ if(ENABLE_DISPLAY)
         map/map.cu
         contract/contract.cu
         display/renderer.cu
+        save/save.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -61,7 +62,7 @@ else()
         creatures/actions/reproduce.cu
         map/map.cu
         contract/contract.cu
-        
+        save/save.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
