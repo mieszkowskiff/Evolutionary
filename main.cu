@@ -240,7 +240,6 @@ int main(int argc, char** argv) {
             std::cout << "Time spent waiting in map join(): " << duration.count() << " ms\n";
         }
 
-
         float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
         if (seasonal_factor < 0.0f) seasonal_factor = 0.0f;

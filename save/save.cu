@@ -66,7 +66,7 @@ void SaveManager::Save(const Creatures* creatures, int start_creature_index) {
     }
 
     // Action data
-    for (int action_index = 0; action_index < ACTION_TYPES_N; action_index++) {
+    for (int action_index = 0; action_index < OUTPUT_NEURONS_N; action_index++) {
         int8_t* action_x;
         int8_t* action_y;
         int8_t* action_type;
