@@ -171,11 +171,11 @@ void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos
     MapData* h_map_data = map->d_data;
     CreatureData* h_creature_data = d_data;
 
-    d_PerceveMap<<<dim3((count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8)>>>(map->d_data, d_data, count);
-    d_PerceveSimulation<<<(count + 255) / 256, 256>>>(map->d_data, d_data, count);
-    d_PopulateHiddenLayer<<<dim3((count + 127) / 128, (HIDDEN_NEURONS_N + 7) / 8), dim3(128, 8)>>>(d_data, count);
-    d_PopulateOutputLayer<<<dim3((count + 127) / 128, (OUTPUT_NEURONS_N + 7) / 8), dim3(128, 8)>>>(d_data, count);
-    d_ActionSelection<<<(count + 255) / 256, 256>>>(d_data, seed, count);
+    d_PerceveMap<<<dim3((count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(map->d_data, d_data, count);
+    d_PerceveSimulation<<<(count + 255) / 256, 256, 0, compute_stream>>>(map->d_data, d_data, count);
+    d_PopulateHiddenLayer<<<dim3((count + 127) / 128, (HIDDEN_NEURONS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(d_data, count);
+    d_PopulateOutputLayer<<<dim3((count + 127) / 128, (OUTPUT_NEURONS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(d_data, count);
+    d_ActionSelection<<<(count + 255) / 256, 256, 0, compute_stream>>>(d_data, seed, count);
 
     cudaDeviceSynchronize();
 

@@ -29,10 +29,10 @@ if(ENABLE_DISPLAY)
         creatures/actions/drink.cu
         creatures/actions/attack.cu
         creatures/actions/reproduce.cu
+        creatures/save.cu
         map/map.cu
         contract/contract.cu
         display/renderer.cu
-        save/save.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -60,9 +60,9 @@ else()
         creatures/actions/drink.cu
         creatures/actions/attack.cu
         creatures/actions/reproduce.cu
+        creatures/save.cu
         map/map.cu
         contract/contract.cu
-        save/save.cu
     )
 
     set_target_properties(Evolutionary PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

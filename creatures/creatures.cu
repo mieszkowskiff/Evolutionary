@@ -20,7 +20,7 @@ void Creatures::RebuildCreatureMap(Map* map) {
     cudaMemset(map->h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
 
     if (count > 0) {
-        d_RebuildCreatureMap<<<(count + 255) / 256, 256>>>(
+        d_RebuildCreatureMap<<<(count + 255) / 256, 256, 0, compute_stream>>>(
             map->d_data,
             d_data,
             count

@@ -24,6 +24,8 @@ Map::Map() {
     cudaMemset(h_data->water, 0, bytes);
     cudaMemset(h_data->danger, 0, bytes);
     cudaMemset(h_data->creature, 0, bytes);
+
+    cudaStreamCreate(&map_stream);
 }
 
 Map::~Map() {
@@ -33,6 +35,7 @@ Map::~Map() {
     cudaFree(h_data->creature);
     cudaFree(d_data);
     delete h_data;
+    cudaStreamDestroy(map_stream);
 }
 
 void Map::refresh(unsigned long long seed, int max_food_count) {
@@ -41,8 +44,8 @@ void Map::refresh(unsigned long long seed, int max_food_count) {
     cudaMemset(h_data->food, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->water, 0, WIDTH * HEIGHT * sizeof(float));
 
-    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, derive_seed(seed, 67890));
-    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, derive_seed(seed, 54321));
+    place_food<<<(max_food_count + 255) / 256, 256, 0, map_stream>>>(d_data, max_food_count, derive_seed(seed, 67890));
+    place_water<<<(max_food_count + 255) / 256, 256, 0, map_stream>>>(d_data, max_food_count, derive_seed(seed, 54321));
 }
 
 __device__ int get_cell_index(int x, int y) {

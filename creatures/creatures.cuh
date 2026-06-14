@@ -6,6 +6,9 @@
 #include "map/map.cuh"
 #include "random/random.cuh"
 #include "creatures/helpers.cuh"
+#include <thread>
+#include <string>
+#include <fstream>
 
 struct CreatureData {
 
@@ -65,8 +68,16 @@ class Creatures {
     
     CreatureData* d_data;
     CreatureData* h_data;
+    CreatureData* h_pinned;
+
+    cudaStream_t compute_stream;
+    cudaStream_t transfer_stream;
+
+    std::ofstream save_stream;
+
+    std::thread save_worker_thread;
     
-    Creatures(unsigned long long seed, int count, long long *global_id_counter);
+    Creatures(unsigned long long seed, int count, long long *global_id_counter, std::string stream_name);
     ~Creatures();
 
     void ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin);    
@@ -77,7 +88,7 @@ class Creatures {
 
     void ReproduceAction(unsigned long long seed);
 
-    void Save_tick(int tick);
+    void Save(int first_newborn_index, int tick);
 };
 
 

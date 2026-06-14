@@ -29,6 +29,8 @@ class Map {
 
     void remove_creatures_from_map();
 
+    cudaStream_t map_stream;
+
     void refresh(unsigned long long seed, int max_food_count);
 };
 

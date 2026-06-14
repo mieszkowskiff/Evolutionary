@@ -17,7 +17,6 @@
 #include "constants.h"
 #include "contract/contract.cuh"
 #include <thread>
-#include "save/save.cuh"
 #include <chrono>
 
 #ifdef ENABLE_DISPLAY
@@ -161,16 +160,13 @@ int main(int argc, char** argv) {
 
     *global_id_counter = 0;
 
-    Creatures creatures1 = Creatures(cfg.seed, cfg.initial_creatures, global_id_counter);
-    Creatures creatures2 = Creatures(cfg.seed, 0, global_id_counter);
-
-    SaveManager saveManager = SaveManager();
+    Creatures creatures1 = Creatures(cfg.seed, cfg.initial_creatures, global_id_counter, "save/stream1.bin");
+    Creatures creatures2 = Creatures(cfg.seed, 0, global_id_counter, "save/stream2.bin");
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
     
     Map map = Map();
-
     float* food_save = new float[WIDTH * HEIGHT];
     float* creature_save = new float[WIDTH * HEIGHT];
     float* danger_save = new float[WIDTH * HEIGHT];
@@ -179,11 +175,11 @@ int main(int argc, char** argv) {
 
     map.refresh(derive_seed(cfg.seed, 0), cfg.food_spawn_quantity * cfg.initial_food_multiplier);
 
-    cudaDeviceSynchronize();
+    cudaStreamSynchronize(map.map_stream);
 
     current_creatures->RebuildCreatureMap(&map);
     
-    cudaDeviceSynchronize();
+    cudaStreamSynchronize(current_creatures->compute_stream);
 
     #ifdef ENABLE_DISPLAY
     // Displaying
@@ -193,7 +189,6 @@ int main(int argc, char** argv) {
 
     int t = 0;
 
-    std::thread save_creatures_worker;
     std::thread save_map_worker;
 
 
@@ -226,19 +221,19 @@ int main(int argc, char** argv) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
 
-        save_map_worker = std::thread(&SaveManager::SaveMap, &saveManager, &map);
+        //save_map_worker = std::thread(&SaveManager::SaveMap, &saveManager, &map, t);
         
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(current_creatures->compute_stream);
 
-        if (save_map_worker.joinable()) {
-            auto start_time = std::chrono::high_resolution_clock::now();
-            save_map_worker.join();
-            auto end_time = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            std::cout << "Time spent waiting in map join(): " << duration.count() << " ms\n";
-        }
+        // if (save_map_worker.joinable()) {
+        //     auto start_time = std::chrono::high_resolution_clock::now();
+        //     save_map_worker.join();
+        //     auto end_time = std::chrono::high_resolution_clock::now();
+        //     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        //     std::cout << "Time spent waiting in map join(): " << duration.count() << " ms\n";
+        // }
 
         float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
@@ -248,7 +243,7 @@ int main(int argc, char** argv) {
         int water_this_tick = (int)roundf(cfg.food_spawn_quantity * seasonal_factor);
 
         if (food_this_tick > 0) {
-            place_food<<<(food_this_tick + 255) / 256, 256>>>(
+            place_food<<<(food_this_tick + 255) / 256, 256, 0, map.map_stream>>>(
                 map.d_data,
                 food_this_tick,
                 derive_seed(seed, 12345)
@@ -256,41 +251,39 @@ int main(int argc, char** argv) {
         }
 
         if (water_this_tick > 0) {
-            place_water<<<(water_this_tick + 255) / 256, 256>>>(
+            place_water<<<(water_this_tick + 255) / 256, 256, 0, map.map_stream>>>(
                 map.d_data,
                 water_this_tick,
                 derive_seed(seed, 54321)
             );
         }
 
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(map.map_stream);
 
-        t++;
-
-        if (save_creatures_worker.joinable()) {
-            auto start_time = std::chrono::high_resolution_clock::now();
-            save_creatures_worker.join();
-            auto end_time = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            std::cout << "Time spent waiting in join(): " << duration.count() << " ms\n";
-        }
+        cudaStreamSynchronize(next_creatures->transfer_stream);
 
         contract(current_creatures, next_creatures);
         std::swap(current_creatures, next_creatures);
 
-        save_creatures_worker = std::thread(&SaveManager::Save, &saveManager, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION]);
+        if (next_creatures->save_worker_thread.joinable()) {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            next_creatures->save_worker_thread.join();
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            std::cout << "Time spent waiting in join(): " << duration.count() << " ms\n";
+        }
+        
+        next_creatures->save_worker_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t);
 
         current_creatures->RebuildCreatureMap(&map);
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(current_creatures->compute_stream);
 
         if (current_creatures->count == 0) {
             std::cout << "All creatures died. Ending simulation." << std::endl;
             running = false;
         }
-    }
 
-    if (save_creatures_worker.joinable()) {
-        save_creatures_worker.join();
+        t++;
     }
 
     delete global_id_counter;
