@@ -75,7 +75,8 @@ class Creatures {
 
     std::ofstream save_stream;
 
-    std::thread save_worker_thread;
+    std::thread transfer_thread;
+    std::thread save_thread;
     
     Creatures(unsigned long long seed, int count, long long *global_id_counter, std::string stream_name);
     ~Creatures();
@@ -88,7 +89,10 @@ class Creatures {
 
     void ReproduceAction(unsigned long long seed);
 
-    void Save(int first_newborn_index, int tick);
+    void Save(int first_newborn_index, int tick, bool save_sensors_and_actions, bool save_neuron_values, bool save_network_weights);
+
+    private:
+    void SaveToFile(int first_newborn_index, int new_creatures_count, int t, bool save_sensors_and_actions, bool save_neuron_values, bool save_network_weights);
 };
 
 

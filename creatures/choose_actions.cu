@@ -1,6 +1,7 @@
 #include "creatures/creatures.cuh"
 #include <cuda_fp8.h>
 #include "iostream"
+#include "map/map.cuh"
 
 __global__ void d_PerceveMap(MapData* d_map, CreatureData* d_creatures, int count) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -167,9 +168,6 @@ __global__ void d_ActionSelection(CreatureData* d_creatures, unsigned long long 
 
 void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
-
-    MapData* h_map_data = map->d_data;
-    CreatureData* h_creature_data = d_data;
 
     d_PerceveMap<<<dim3((count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(map->d_data, d_data, count);
     d_PerceveSimulation<<<(count + 255) / 256, 256, 0, compute_stream>>>(map->d_data, d_data, count);

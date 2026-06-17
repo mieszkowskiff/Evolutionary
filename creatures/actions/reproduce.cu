@@ -216,7 +216,7 @@ void Creatures::ReproduceAction(unsigned long long seed) {
     if (reproduce_count + count > MAX_CREATURE_N) {
         reproduce_count = MAX_CREATURE_N - count;
     }
-    std::cout << "Reproducing " << reproduce_count << " creatures. count: " << count << " MAX_CREATURE_N: " << MAX_CREATURE_N << std::endl;
+    //std::cout << "Reproducing " << reproduce_count << " creatures. count: " << count << " MAX_CREATURE_N: " << MAX_CREATURE_N << std::endl;
     if (reproduce_count <= 0) return;
 
     d_CopySensors<<<dim3((reproduce_count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8)>>>(d_data, reproduce_count, count);

@@ -5,16 +5,6 @@
 #include "constants.h"
 #include "map/map.cuh"
 
-__host__ __device__ inline float get_cell(MapData* map, int layer, int index) {
-    switch (layer) {
-        case 0: return map->food[index];
-        case 1: return map->danger[index];
-        case 2: return map->creature[index];
-        case 3: return map->water[index];
-        default: return 0.0f; 
-    }
-}
-
 __host__ __device__ inline int get_sensor_idx(int creature_index, int sensor_index){
     return sensor_index * MAX_CREATURE_N + creature_index;
 }

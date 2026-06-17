@@ -166,7 +166,7 @@ int main(int argc, char** argv) {
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
     
-    Map map = Map();
+    Map map = Map("save/map_stream.bin");
     float* food_save = new float[WIDTH * HEIGHT];
     float* creature_save = new float[WIDTH * HEIGHT];
     float* danger_save = new float[WIDTH * HEIGHT];
@@ -199,7 +199,19 @@ int main(int argc, char** argv) {
         float season_cos = cosf(season_phase);
         float season_sin = sinf(season_phase);
 
+        if  (30000 < t && t < 30100) map.transfer_thread = std::thread(&Map::Save, &map, t);
+
         current_creatures->ChooseAction(&map, derive_seed(seed, 98423), season_cos, season_sin);
+
+        if (map.transfer_thread.joinable()) {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            map.transfer_thread.join();
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            if (duration.count() > 0) {
+                std::cout << "Time spent waiting in map transfer: " << duration.count() << " ms, t = " << t << std::endl;
+            }
+        }
 
         #ifdef ENABLE_DISPLAY
         display.renderFrame(&map);
@@ -214,26 +226,14 @@ int main(int argc, char** argv) {
             running = false;
         }
 
-        std::cout << t << " " << *global_id_counter << " " << current_creatures->count << " " << current_creatures->action_types_counts[0] << " " << current_creatures->action_types_counts[1] << " " << current_creatures->action_types_counts[2] << " " << current_creatures->action_types_counts[3] << " " << current_creatures->action_types_counts[4] << " " << " kills= " << current_creatures->h_attack_damage_kills << std::endl;
-
         cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
-
-        //save_map_worker = std::thread(&SaveManager::SaveMap, &saveManager, &map, t);
         
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
         cudaStreamSynchronize(current_creatures->compute_stream);
-
-        // if (save_map_worker.joinable()) {
-        //     auto start_time = std::chrono::high_resolution_clock::now();
-        //     save_map_worker.join();
-        //     auto end_time = std::chrono::high_resolution_clock::now();
-        //     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-        //     std::cout << "Time spent waiting in map join(): " << duration.count() << " ms\n";
-        // }
 
         float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
@@ -262,19 +262,24 @@ int main(int argc, char** argv) {
 
         cudaStreamSynchronize(next_creatures->transfer_stream);
 
-        contract(current_creatures, next_creatures);
-        std::swap(current_creatures, next_creatures);
+        if (current_creatures->count > 0) {
+            contract(current_creatures, next_creatures);
+            std::swap(current_creatures, next_creatures);
+        }
 
-        if (next_creatures->save_worker_thread.joinable()) {
+
+        if (next_creatures->transfer_thread.joinable()) {
             auto start_time = std::chrono::high_resolution_clock::now();
-            next_creatures->save_worker_thread.join();
+            next_creatures->transfer_thread.join();
             auto end_time = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-            std::cout << "Time spent waiting in join(): " << duration.count() << " ms\n";
+            if (duration.count() > 0) {
+                std::cout << "Time spent waiting in creature transfer: " << duration.count() << " ms, t = " << t << std::endl;
+            }
         }
-        
-        next_creatures->save_worker_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t);
 
+        if (30000 < t && t < 30100) next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, true, true, true);
+        //else next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, false, false, false);
         current_creatures->RebuildCreatureMap(&map);
         cudaStreamSynchronize(current_creatures->compute_stream);
 
@@ -284,6 +289,10 @@ int main(int argc, char** argv) {
         }
 
         t++;
+        if (t % 1000 == 0) {
+            std::cout << "Tick: " << t << ", Creatures: " << current_creatures->count << std::endl;
+        }
+        if (t > 30100) running = false;
     }
 
     delete global_id_counter;

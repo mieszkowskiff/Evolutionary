@@ -139,8 +139,11 @@ __global__ void InitializeRandomCreatures(CreatureData* creatures, int count, un
 
 
 Creatures::~Creatures() {
-    if (save_worker_thread.joinable()) {
-        save_worker_thread.join();
+    if (transfer_thread.joinable()) {
+        transfer_thread.join();
+    }
+    if (save_thread.joinable()) {
+        save_thread.join();
     }
     save_stream.close();
 
