@@ -11,6 +11,7 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 find_package(CUDAToolkit REQUIRED)
 
 option(ENABLE_DISPLAY "Build with OpenGL graphical display" ON)
+option(ENABLE_NVTX "Enable NVTX profiling ranges" ON)
 
 if(ENABLE_DISPLAY)
     message(STATUS "GUI Display is ENABLED. Looking for OpenGL libraries...")
@@ -76,3 +77,6 @@ endif()
 target_include_directories(Evolutionary PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_options(Evolutionary PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
+if(ENABLE_NVTX)
+    target_compile_definitions(Evolutionary PRIVATE ENABLE_NVTX)
+endif()

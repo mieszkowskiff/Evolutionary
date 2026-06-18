@@ -9,11 +9,11 @@
 
 // #define MAX_PARAMETER_VALUE 5.0f
 
-#define WIDTH 1024
-#define HEIGHT 1024
+#define WIDTH 256
+#define HEIGHT 256
 
-#define MAX_CREATURE_N (1 << 20)
-#define INITIAL_CREATURE_N (1 << 18)
+#define MAX_CREATURE_N (1 << 17)
+#define INITIAL_CREATURE_N (1 << 17)
 
 #define MILIEU_SENSORS_N 60
 #define INTERNAL_SENSORS_N 4

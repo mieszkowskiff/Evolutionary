@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "profiling/profiling.cuh"
+#include <cuda_profiler_api.h>
 #include <thrust/scan.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -38,6 +40,10 @@ struct RunConfig {
     int max_ticks = -1;
     int contract_every = 2;
     int save_creatures = 1;
+    int nvtx = 0;
+    int nsys_start_tick = -1;
+    int nsys_end_tick = -1;
+    int contract_mode = 0;
 };
 
 int parse_int_arg(const char* value, const char* name) {
@@ -76,6 +82,10 @@ void print_usage(const char* prog) {
         << "  --max-ticks N\n"
         << "  --contract-every N\n"
         << "  --save-creatures 0|1\n"
+        << "  --nvtx 0|1\n"
+        << "  --nsys-start-tick N\n"
+        << "  --nsys-end-tick N\n"
+        << "  --contract-mode 0|1|2|3\n"
         << "  --help\n\n"
         << "Compile-time constants:\n"
         << "  WIDTH=" << WIDTH << "\n"
@@ -114,6 +124,14 @@ RunConfig parse_args(int argc, char** argv) {
             cfg.contract_every = parse_int_arg(value_after(argv[i]), "--contract-every");
         } else if (std::strcmp(argv[i], "--save-creatures") == 0) {
             cfg.save_creatures = parse_int_arg(value_after(argv[i]), "--save-creatures");
+        } else if (std::strcmp(argv[i], "--nvtx") == 0) {
+            cfg.nvtx = parse_int_arg(value_after(argv[i]), "--nvtx");
+        } else if (std::strcmp(argv[i], "--nsys-start-tick") == 0) {
+            cfg.nsys_start_tick = parse_int_arg(value_after(argv[i]), "--nsys-start-tick");
+        } else if (std::strcmp(argv[i], "--nsys-end-tick") == 0) {
+            cfg.nsys_end_tick = parse_int_arg(value_after(argv[i]), "--nsys-end-tick");
+        } else if (std::strcmp(argv[i], "--contract-mode") == 0) {
+            cfg.contract_mode = parse_int_arg(value_after(argv[i]), "--contract-mode");
         } else {
             std::cerr << "Unknown argument: " << argv[i] << std::endl;
             print_usage(argv[0]);
@@ -141,6 +159,31 @@ RunConfig parse_args(int argc, char** argv) {
         std::exit(2);
     }
 
+    if (cfg.nvtx != 0 && cfg.nvtx != 1) {
+        std::cerr << "--nvtx must be 0 or 1" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.nsys_start_tick < -1) {
+        std::cerr << "--nsys-start-tick must be >= -1" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.nsys_end_tick < -1) {
+        std::cerr << "--nsys-end-tick must be >= -1" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.nsys_start_tick >= 0 && cfg.nsys_end_tick >= 0 && cfg.nsys_end_tick < cfg.nsys_start_tick) {
+        std::cerr << "--nsys-end-tick must be >= --nsys-start-tick" << std::endl;
+        std::exit(2);
+    }
+
+    if (cfg.contract_mode < 0 || cfg.contract_mode > 3) {
+        std::cerr << "--contract-mode must be 0, 1, 2 or 3" << std::endl;
+        std::exit(2);
+    }
+
     return cfg;
 }
 
@@ -165,6 +208,8 @@ int main(int argc, char** argv) {
 
     Creatures* current_creatures = &creatures1;
     Creatures* next_creatures = &creatures2;
+
+    ContractWorkspace contract_workspace;
     
     Map map = Map("save/map_stream.bin");
     float* food_save = new float[WIDTH * HEIGHT];
@@ -193,20 +238,34 @@ int main(int argc, char** argv) {
 
 
     while (running && t != cfg.max_ticks) {
+        if (cfg.nsys_start_tick >= 0 && t == cfg.nsys_start_tick) {
+            cudaProfilerStart();
+        }
+        NVTX_PUSH_ENABLED(cfg.nvtx, "Tick");
 
         unsigned long long seed = derive_seed(cfg.seed, t + 54);
         float season_phase = 2.0f * 3.14159265358979323846f * t / SEASON_PERIOD;
         float season_cos = cosf(season_phase);
         float season_sin = sinf(season_phase);
 
-        if  (30000 < t && t < 30100) map.transfer_thread = std::thread(&Map::Save, &map, t);
+        if  (30000 < t && t < 30100){
+            map.transfer_thread = std::thread(&Map::Save, &map, t);
+            map.transfer_thread = std::thread(&Map::Save, &map, t);
+            NVTX_POP_ENABLED(cfg.nvtx);
+        } 
 
+        NVTX_PUSH_ENABLED(cfg.nvtx, "ChooseAction");
         current_creatures->ChooseAction(&map, derive_seed(seed, 98423), season_cos, season_sin);
+        NVTX_POP_ENABLED(cfg.nvtx);
 
         if (map.transfer_thread.joinable()) {
+            NVTX_PUSH_ENABLED(cfg.nvtx, "WaitMapTransfer");
+
             auto start_time = std::chrono::high_resolution_clock::now();
             map.transfer_thread.join();
             auto end_time = std::chrono::high_resolution_clock::now();
+            NVTX_POP_ENABLED(cfg.nvtx);
+
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             if (duration.count() > 0) {
                 std::cout << "Time spent waiting in map transfer: " << duration.count() << " ms, t = " << t << std::endl;
@@ -231,10 +290,16 @@ int main(int argc, char** argv) {
             std::cout << "ERROR: " << cudaGetErrorString(cudaStatus) << std::endl;
         }
         
+        NVTX_PUSH_ENABLED(cfg.nvtx, "ClearDanger");
         cudaMemset(map.h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
+        NVTX_POP_ENABLED(cfg.nvtx);
+        
+        NVTX_PUSH_ENABLED(cfg.nvtx, "RunActions");
         current_creatures->RunActions(&map, derive_seed(seed, 4096));
         cudaStreamSynchronize(current_creatures->compute_stream);
+        NVTX_POP_ENABLED(cfg.nvtx);
 
+        NVTX_PUSH_ENABLED(cfg.nvtx, "PlaceResources");
         float seasonal_factor = SEASON_OFFSET + SEASON_AMPLITUDE * season_sin;
 
         if (seasonal_factor < 0.0f) seasonal_factor = 0.0f;
@@ -259,29 +324,56 @@ int main(int argc, char** argv) {
         }
 
         cudaStreamSynchronize(map.map_stream);
+        NVTX_POP_ENABLED(cfg.nvtx);
 
+        NVTX_PUSH_ENABLED(cfg.nvtx, "SyncCreatureTransferStream");
         cudaStreamSynchronize(next_creatures->transfer_stream);
+        NVTX_POP_ENABLED(cfg.nvtx);
 
         if (current_creatures->count > 0) {
-            contract(current_creatures, next_creatures);
+            NVTX_PUSH_ENABLED(cfg.nvtx, "Contract");
+
+            if (cfg.contract_mode == 0) {
+                contract(current_creatures, next_creatures);
+            } else if (cfg.contract_mode == 1) {
+                contract_optimized(current_creatures, next_creatures, &contract_workspace);
+            } else if (cfg.contract_mode == 2) {
+                contract_optimized_split_copy(current_creatures, next_creatures, &contract_workspace);
+            } else if (cfg.contract_mode == 3) {
+                contract_optimized_atomic(current_creatures, next_creatures, &contract_workspace);
+            }
+
             std::swap(current_creatures, next_creatures);
+
+            NVTX_POP_ENABLED(cfg.nvtx);
         }
 
 
         if (next_creatures->transfer_thread.joinable()) {
+            NVTX_PUSH_ENABLED(cfg.nvtx, "WaitCreatureTransfer");
+
             auto start_time = std::chrono::high_resolution_clock::now();
             next_creatures->transfer_thread.join();
             auto end_time = std::chrono::high_resolution_clock::now();
+            NVTX_PUSH_ENABLED(cfg.nvtx, "WaitCreatureTransfer");
+
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             if (duration.count() > 0) {
                 std::cout << "Time spent waiting in creature transfer: " << duration.count() << " ms, t = " << t << std::endl;
             }
         }
 
-        if (30000 < t && t < 30100) next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, true, true, true);
+        if (30000 < t && t < 30100) {
+            NVTX_PUSH_ENABLED(cfg.nvtx, "StartCreatureSaveThread");
+            next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, true, true, true);
+            NVTX_POP_ENABLED(cfg.nvtx);
+        }
         //else next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, false, false, false);
+        
+        NVTX_PUSH_ENABLED(cfg.nvtx, "RebuildCreatureMap");
         current_creatures->RebuildCreatureMap(&map);
         cudaStreamSynchronize(current_creatures->compute_stream);
+        NVTX_POP_ENABLED(cfg.nvtx);
 
         if (current_creatures->count == 0) {
             std::cout << "All creatures died. Ending simulation." << std::endl;
@@ -289,11 +381,19 @@ int main(int argc, char** argv) {
         }
 
         t++;
-        if (t % 1000 == 0) {
+        if (t % 50 == 0) {
             std::cout << "Tick: " << t << ", Creatures: " << current_creatures->count << std::endl;
         }
         if (t > 30100) running = false;
+
+        NVTX_POP_ENABLED(cfg.nvtx);
+
+        if (cfg.nsys_end_tick >= 0 && t == cfg.nsys_end_tick) {
+            cudaProfilerStop();
+        }
     }
+
+    free_contract_workspace(&contract_workspace);
 
     delete global_id_counter;
 
