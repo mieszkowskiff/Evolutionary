@@ -44,6 +44,7 @@ __global__ void d_calculate_live_creatures(CreatureData* d_creatures, int* d_cre
     d_creature_alive[creature_index] = (d_creatures->energy[creature_index] > 0.0f && d_creatures->water[creature_index] > 0.0f) ? 1 : 0;
 }
 
+// Mode 0: Updated to use helper functions for memory layout flexibility
 __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_creatures, int* d_contracted_creature_indices, int* d_creature_alive, int count) {
     int old_creature_index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -54,8 +55,7 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
 
     int new_creature_idx = d_contracted_creature_indices[old_creature_index];
 
-    //Copying data
-
+    // Copying basic data (assuming standard 1D arrays for basic stats)
     d_new_creatures->x[new_creature_idx] = d_old_creatures->x[old_creature_index];
     d_new_creatures->y[new_creature_idx] = d_old_creatures->y[old_creature_index];
     d_new_creatures->energy[new_creature_idx] = d_old_creatures->energy[old_creature_index];
@@ -63,12 +63,14 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
     d_new_creatures->ids[new_creature_idx] = d_old_creatures->ids[old_creature_index];
     d_new_creatures->age[new_creature_idx] = d_old_creatures->age[old_creature_index];
 
+    // Copying sensors using layout helpers
     for (int i = 0; i < MILIEU_SENSORS_N; i++) {
-        d_new_creatures->sensor_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_x[i * MAX_CREATURE_N + old_creature_index];
-        d_new_creatures->sensor_y[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_y[i * MAX_CREATURE_N + old_creature_index];
-        d_new_creatures->sensor_type[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->sensor_type[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->sensor_x[get_sensor_idx(new_creature_idx, i)] = d_old_creatures->sensor_x[get_sensor_idx(old_creature_index, i)];
+        d_new_creatures->sensor_y[get_sensor_idx(new_creature_idx, i)] = d_old_creatures->sensor_y[get_sensor_idx(old_creature_index, i)];
+        d_new_creatures->sensor_type[get_sensor_idx(new_creature_idx, i)] = d_old_creatures->sensor_type[get_sensor_idx(old_creature_index, i)];
     }
 
+    // Copying neural network matrices using layout helpers
     for(int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
         for(int sensor_idx = 0; sensor_idx < INPUT_NEURONS_N; sensor_idx++) {
             d_new_creatures->first_matrix[get_first_matrix_idx(new_creature_idx, hidden_idx, sensor_idx)] = d_old_creatures->first_matrix[get_first_matrix_idx(old_creature_index, hidden_idx, sensor_idx)];
@@ -81,18 +83,19 @@ __global__ void contract(CreatureData* d_old_creatures, CreatureData* d_new_crea
         }
     }
 
+    // Copying bias using layout helpers
     for (int hidden_idx = 0; hidden_idx < HIDDEN_NEURONS_N; hidden_idx++) {
-        d_new_creatures->bias[new_creature_idx * HIDDEN_NEURONS_N + hidden_idx] =
-            d_old_creatures->bias[old_creature_index * HIDDEN_NEURONS_N + hidden_idx];
+        d_new_creatures->bias[get_hidden_layer_bias_idx(new_creature_idx, hidden_idx)] =
+            d_old_creatures->bias[get_hidden_layer_bias_idx(old_creature_index, hidden_idx)];
     }
 
+    // Copying actions using layout helpers
     for (int i = 0; i < ACTIONS_N; i++) {
-        d_new_creatures->action_x[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_x[i * MAX_CREATURE_N + old_creature_index];
-        d_new_creatures->action_y[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_y[i * MAX_CREATURE_N + old_creature_index];
-        d_new_creatures->action_type[i * MAX_CREATURE_N + new_creature_idx] = d_old_creatures->action_type[i * MAX_CREATURE_N + old_creature_index];
+        d_new_creatures->action_x[get_action_idx(new_creature_idx, i)] = d_old_creatures->action_x[get_action_idx(old_creature_index, i)];
+        d_new_creatures->action_y[get_action_idx(new_creature_idx, i)] = d_old_creatures->action_y[get_action_idx(old_creature_index, i)];
+        d_new_creatures->action_type[get_action_idx(new_creature_idx, i)] = d_old_creatures->action_type[get_action_idx(old_creature_index, i)];
     }
 }
-
 // #################################################################################################################################
 // Mode 1, introduce workspace memory allocation, instead of allocating the memory in each contract call, allocate it once and reuse
 
@@ -237,33 +240,6 @@ __global__ void d_contract_copy_scalars(
 }
 
 
-__global__ void d_contract_copy_sensors(
-    CreatureData* d_old_creatures,
-    CreatureData* d_new_creatures,
-    int* d_contracted_creature_indices,
-    int* d_creature_alive,
-    int count,
-    size_t total_items
-) {
-    size_t item = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (item >= total_items) return;
-
-    int old_creature_index = item % count;
-    int sensor_idx = item / count;
-
-    if (!d_creature_alive[old_creature_index]) return;
-
-    int new_creature_idx = d_contracted_creature_indices[old_creature_index];
-
-    size_t old_idx = sensor_idx * MAX_CREATURE_N + old_creature_index;
-    size_t new_idx = sensor_idx * MAX_CREATURE_N + new_creature_idx;
-
-    d_new_creatures->sensor_x[new_idx] = d_old_creatures->sensor_x[old_idx];
-    d_new_creatures->sensor_y[new_idx] = d_old_creatures->sensor_y[old_idx];
-    d_new_creatures->sensor_type[new_idx] = d_old_creatures->sensor_type[old_idx];
-}
-
 
 __global__ void d_contract_copy_first_matrix(
     CreatureData* d_old_creatures,
@@ -342,6 +318,33 @@ __global__ void d_contract_copy_bias(
         d_old_creatures->bias[get_hidden_layer_bias_idx(old_creature_index, hidden_idx)];
 }
 
+__global__ void d_contract_copy_sensors(
+    CreatureData* d_old_creatures,
+    CreatureData* d_new_creatures,
+    int* d_contracted_creature_indices,
+    int* d_creature_alive,
+    int count,
+    size_t total_items
+) {
+    size_t item = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (item >= total_items) return;
+
+    int old_creature_index = item % count;
+    int sensor_idx = item / count;
+
+    if (!d_creature_alive[old_creature_index]) return;
+
+    int new_creature_idx = d_contracted_creature_indices[old_creature_index];
+
+    // Using layout helper function instead of manual calculation
+    size_t old_idx = get_sensor_idx(old_creature_index, sensor_idx);
+    size_t new_idx = get_sensor_idx(new_creature_idx, sensor_idx);
+
+    d_new_creatures->sensor_x[new_idx] = d_old_creatures->sensor_x[old_idx];
+    d_new_creatures->sensor_y[new_idx] = d_old_creatures->sensor_y[old_idx];
+    d_new_creatures->sensor_type[new_idx] = d_old_creatures->sensor_type[old_idx];
+}
 
 __global__ void d_contract_copy_actions(
     CreatureData* d_old_creatures,
@@ -362,8 +365,9 @@ __global__ void d_contract_copy_actions(
 
     int new_creature_idx = d_contracted_creature_indices[old_creature_index];
 
-    size_t old_idx = action_idx * MAX_CREATURE_N + old_creature_index;
-    size_t new_idx = action_idx * MAX_CREATURE_N + new_creature_idx;
+    // Using layout helper function instead of manual calculation
+    size_t old_idx = get_action_idx(old_creature_index, action_idx);
+    size_t new_idx = get_action_idx(new_creature_idx, action_idx);
 
     d_new_creatures->action_x[new_idx] = d_old_creatures->action_x[old_idx];
     d_new_creatures->action_y[new_idx] = d_old_creatures->action_y[old_idx];

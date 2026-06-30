@@ -5,9 +5,9 @@
 5) Commands:
 
 To start a run and gather data: 
-nsys profile   --trace=nvtx   --sample=none   --force-overwrite=true   -o profiles/evo_contract_NEW_RUN_nvtx   ./build/Evolutionary     --seed 1     --initial-creatures 100096     --food-spawn-quantity 5064     --initial-food-multiplier 50     --save-every 0     --save-creatures 0     --contract-every 1     --max-ticks 2500     --nvtx 1     --contract-mode 3
+nsys profile   --trace=nvtx   --sample=none   --force-overwrite=true   -o ../profiles/evo_contract_NEW_RUN_nvtx   ./Evolutionary     --seed 1     --initial-creatures 100096     --food-spawn-quantity 5064     --initial-food-multiplier 50     --save-every 0     --save-creatures 0     --contract-every 1     --max-ticks 2500     --nvtx 1     --contract-mode 3
 
 To analyze the gathered data from the run:
-nsys stats profiles/evo_contract_NEW_RUN_nvtx.nsys-rep
+nsys stats ../profiles/evo_contract_NEW_RUN_nvtx.nsys-rep
 
 6) CMakeLists.txt got some changes so build first before trying 5) 

@@ -2,6 +2,9 @@
 #include <cuda_fp8.h>
 #include "iostream"
 #include "map/map.cuh"
+#include <mma.h>
+#include <cuda_fp16.h>
+
 
 __global__ void d_PerceveMap(MapData* d_map, CreatureData* d_creatures, int count) {
     int creature_index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -166,6 +169,151 @@ __global__ void d_ActionSelection(CreatureData* d_creatures, unsigned long long 
     }
 }
 
+
+using namespace nvcuda;
+
+#define WARPS_PER_BLOCK 4
+#define WARP_SIZE 32
+#define BLOCK_SIZE (WARPS_PER_BLOCK * WARP_SIZE)
+
+__global__ void d_PopulateHiddenLayer_WMMA(CreatureData* d_creatures, int count) {
+    int warp_id_global = (blockIdx.x * blockDim.x + threadIdx.x) / WARP_SIZE;
+    int warp_id_local = threadIdx.x / WARP_SIZE;
+    int lane_id = threadIdx.x % WARP_SIZE;
+    int creature_index = warp_id_global;
+
+    if (creature_index >= count) return;
+
+    float energy = d_creatures->energy[creature_index];
+    float water = d_creatures->water[creature_index];
+    if (energy <= 0.0f || water <= 0.0f) return;
+
+    // Shared Memory buffered as 'half' (FP16) to satisfy WMMA templates
+    // A: 16 rows (padded), 64 inputs
+    __shared__ half smem_A[WARPS_PER_BLOCK][16][64];
+    // B: 32 hidden neurons, 64 inputs (Row-Major layout)
+    __shared__ half smem_B[WARPS_PER_BLOCK][32][64];
+    // C: 16 rows (padded), 32 hidden neurons output
+    __shared__ float smem_C[WARPS_PER_BLOCK][16][32];
+
+    // 1. Initialize A to zeros and load specific creature data (Casting FP8 -> Float -> Half)
+    #pragma unroll
+    for (int row = 0; row < 16; row++) {
+        smem_A[warp_id_local][row][lane_id] = __float2half(0.0f);
+        smem_A[warp_id_local][row][lane_id + 32] = __float2half(0.0f);
+    }
+
+    int in_idx_1 = get_input_layer_value_idx(creature_index, lane_id);
+    int in_idx_2 = get_input_layer_value_idx(creature_index, lane_id + 32);
+    smem_A[warp_id_local][0][lane_id] = __float2half(static_cast<float>(d_creatures->input_layer_values[in_idx_1]));
+    smem_A[warp_id_local][0][lane_id + 32] = __float2half(static_cast<float>(d_creatures->input_layer_values[in_idx_2]));
+
+    // 2. Load Weights from Global (FP8) to Shared (Half)
+    __nv_fp8_e4m3* base_B = d_creatures->first_matrix + get_first_matrix_idx(creature_index, 0, 0);
+    
+    // 32 threads load 32 neurons. Each thread loads all 64 sensors for its assigned neuron.
+    for (int sensor_idx = 0; sensor_idx < 64; sensor_idx++) {
+        float weight_val = static_cast<float>(base_B[lane_id * 64 + sensor_idx]);
+        smem_B[warp_id_local][lane_id][sensor_idx] = __float2half(weight_val);
+    }
+
+    __syncwarp();
+
+    // 3. Declare WMMA fragments with 'half' (M=16, N=16, K=16)
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag0; // Neurons 0-15
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag1; // Neurons 16-31
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag0; 
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag1;
+
+    wmma::fill_fragment(c_frag0, 0.0f);
+    wmma::fill_fragment(c_frag1, 0.0f);
+
+    // 4. K-dimension tiling: K is 64, step is 16 (4 iterations)
+    for (int k_step = 0; k_step < 64; k_step += 16) {
+        wmma::load_matrix_sync(a_frag, &smem_A[warp_id_local][0][k_step], 64);
+        wmma::load_matrix_sync(b_frag0, &smem_B[warp_id_local][0][k_step], 64);
+        wmma::load_matrix_sync(b_frag1, &smem_B[warp_id_local][16][k_step], 64);
+
+        wmma::mma_sync(c_frag0, a_frag, b_frag0, c_frag0);
+        wmma::mma_sync(c_frag1, a_frag, b_frag1, c_frag1);
+    }
+
+    // 5. Store back and write to Global Memory in FP8
+    wmma::store_matrix_sync(&smem_C[warp_id_local][0][0], c_frag0, 32, wmma::mem_row_major);
+    wmma::store_matrix_sync(&smem_C[warp_id_local][0][16], c_frag1, 32, wmma::mem_row_major);
+
+    __syncwarp();
+
+    float result = smem_C[warp_id_local][0][lane_id];
+    float bias_val = static_cast<float>(d_creatures->bias[get_hidden_layer_bias_idx(creature_index, lane_id)]);
+    
+    d_creatures->hidden_layer_values[get_hidden_layer_value_idx(creature_index, lane_id)] = __nv_fp8_e4m3(result + bias_val);
+}
+
+__global__ void d_PopulateOutputLayer_WMMA(CreatureData* d_creatures, int count) {
+    int warp_id_global = (blockIdx.x * blockDim.x + threadIdx.x) / WARP_SIZE;
+    int warp_id_local = threadIdx.x / WARP_SIZE;
+    int lane_id = threadIdx.x % WARP_SIZE;
+    int creature_index = warp_id_global;
+
+    if (creature_index >= count) return;
+
+    float energy = d_creatures->energy[creature_index];
+    float water = d_creatures->water[creature_index];
+    if (energy <= 0.0f || water <= 0.0f) return;
+
+    __shared__ half smem_A[WARPS_PER_BLOCK][16][32];
+    __shared__ half smem_B[WARPS_PER_BLOCK][32][32]; // 32 actions, 32 hidden neurons
+    __shared__ float smem_C[WARPS_PER_BLOCK][16][32];
+
+    #pragma unroll
+    for (int row = 0; row < 16; row++) {
+        smem_A[warp_id_local][row][lane_id] = __float2half(0.0f);
+    }
+
+    int hidden_val_idx = get_hidden_layer_value_idx(creature_index, lane_id);
+    smem_A[warp_id_local][0][lane_id] = __float2half(static_cast<float>(d_creatures->hidden_layer_values[hidden_val_idx]));
+
+    __nv_fp8_e4m3* base_B = d_creatures->second_matrix + get_second_matrix_idx(creature_index, 0, 0);
+    
+    // Load Weights
+    for (int hidden_idx = 0; hidden_idx < 32; hidden_idx++) {
+        float weight_val = static_cast<float>(base_B[lane_id * 32 + hidden_idx]);
+        smem_B[warp_id_local][lane_id][hidden_idx] = __float2half(weight_val);
+    }
+
+    __syncwarp();
+
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag0; 
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag1; 
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag0;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag1;
+
+    wmma::fill_fragment(c_frag0, 0.0f);
+    wmma::fill_fragment(c_frag1, 0.0f);
+
+    // K is 32, step is 16 (2 iterations)
+    for (int k_step = 0; k_step < 32; k_step += 16) {
+        wmma::load_matrix_sync(a_frag, &smem_A[warp_id_local][0][k_step], 32);
+        wmma::load_matrix_sync(b_frag0, &smem_B[warp_id_local][0][k_step], 32);
+        wmma::load_matrix_sync(b_frag1, &smem_B[warp_id_local][16][k_step], 32);
+
+        wmma::mma_sync(c_frag0, a_frag, b_frag0, c_frag0);
+        wmma::mma_sync(c_frag1, a_frag, b_frag1, c_frag1);
+    }
+
+    wmma::store_matrix_sync(&smem_C[warp_id_local][0][0], c_frag0, 32, wmma::mem_row_major);
+    wmma::store_matrix_sync(&smem_C[warp_id_local][0][16], c_frag1, 32, wmma::mem_row_major);
+
+    __syncwarp();
+
+    d_creatures->output_layer_values[get_output_layer_value_idx(creature_index, lane_id)] = smem_C[warp_id_local][0][lane_id];
+}
+
+
+#if false
 void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
 
@@ -181,3 +329,27 @@ void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos
 
     //TODO: sort actions per type to make it more efficient (partial coalescing)
 }
+#else 
+void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
+    cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
+
+    // Percepcja zostaje po staremu
+    d_PerceveMap<<<dim3((count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(map->d_data, d_data, count);
+    d_PerceveSimulation<<<(count + 255) / 256, 256, 0, compute_stream>>>(map->d_data, d_data, count);
+
+    // --- NOWE WYWOŁANIA DLA TENSOR CORES ---
+    // Potrzebujemy 32 wątków na stworzenie. Blok ma 128 wątków (4 warpy).
+    int threads_per_block = 128;
+    int blocks = (count * 32 + threads_per_block - 1) / threads_per_block;
+
+    d_PopulateHiddenLayer_WMMA<<<blocks, threads_per_block, 0, compute_stream>>>(d_data, count);
+    d_PopulateOutputLayer_WMMA<<<blocks, threads_per_block, 0, compute_stream>>>(d_data, count);
+    // ---------------------------------------
+
+    d_ActionSelection<<<(count + 255) / 256, 256, 0, compute_stream>>>(d_data, seed, count);
+
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(this->action_types_counts, h_data->action_types_counts, ACTION_TYPES_N * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+}
+#endif
