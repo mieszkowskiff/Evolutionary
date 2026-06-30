@@ -3,3 +3,5 @@ build/
 runs/*
 *.bundle
 save/*
+*.nsys-rep
+*.sqlite
