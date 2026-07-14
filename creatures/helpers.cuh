@@ -7,9 +7,8 @@
 // Helper functions for Tensor Core memory layout
 // Memory is now grouped per creature to allow contiguous memory loads by a single warp
 
-# define SOA false
 
-#if SOA
+#if true
 __host__ __device__ inline int get_sensor_idx(int creature_index, int sensor_index){
     return sensor_index * MAX_CREATURE_N + creature_index;
 }

@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
         cudaStreamSynchronize(next_creatures->transfer_stream);
         NVTX_POP_ENABLED(cfg.nvtx);
 
-        if (current_creatures->count > 0) {
+        if (current_creatures->count > 0 && t % cfg.contract_every == 0) {
             NVTX_PUSH_ENABLED(cfg.nvtx, "Contract");
 
             if (cfg.contract_mode == 0) {
