@@ -2,12 +2,29 @@
 #include "constants.h"
 #include <fstream>
 #include <math.h>
+#include <iostream>
 
-Map::Map() {
-
+Map::Map(std::string stream_name) {
     size_t bytes = WIDTH * HEIGHT * sizeof(float);
 
     h_data = new MapData;
+
+    h_data->season_sin = 0.0f;
+    h_data->season_cos = 1.0f;
+
+    cudaStreamCreate(&map_stream);
+    cudaStreamCreate(&transfer_stream);
+
+    save_stream.open(stream_name, std::ios::binary);
+
+    if (!save_stream.is_open()) {
+        std::cerr << "Failed to open save file: " << stream_name << std::endl;
+    } else {
+        int width = WIDTH;
+        int height = HEIGHT;
+        save_stream.write(reinterpret_cast<const char*>(&width), sizeof(int));
+        save_stream.write(reinterpret_cast<const char*>(&height), sizeof(int));
+    }
 
     cudaMalloc(&h_data->food, bytes);
     cudaMalloc(&h_data->water, bytes);
@@ -17,64 +34,51 @@ Map::Map() {
     cudaMalloc(&d_data, sizeof(MapData));
     cudaMemcpy(d_data, h_data, sizeof(MapData), cudaMemcpyHostToDevice);
 
+    h_pinned = new MapData;
+    cudaMallocHost(&h_pinned->food, bytes);
+    cudaMallocHost(&h_pinned->water, bytes);
+    cudaMallocHost(&h_pinned->danger, bytes);
+    cudaMallocHost(&h_pinned->creature, bytes);
+
     cudaMemset(h_data->food, 0, bytes);
     cudaMemset(h_data->water, 0, bytes);
     cudaMemset(h_data->danger, 0, bytes);
     cudaMemset(h_data->creature, 0, bytes);
 
-    h_pinned = new MapData;
-    cudaMallocHost(&h_pinned->food,     bytes);
-    cudaMallocHost(&h_pinned->water,    bytes);
-    cudaMallocHost(&h_pinned->danger,   bytes);
-    cudaMallocHost(&h_pinned->creature, bytes);
+
 }
 
 Map::~Map() {
+    if (transfer_thread.joinable()) {
+        transfer_thread.join();
+    }
+    if (save_thread.joinable()) {
+        save_thread.join();
+    }
+    save_stream.close();
     cudaFree(h_data->food);
     cudaFree(h_data->water);
     cudaFree(h_data->danger);
     cudaFree(h_data->creature);
     cudaFree(d_data);
-    delete h_data;
-
     cudaFreeHost(h_pinned->food);
     cudaFreeHost(h_pinned->water);
     cudaFreeHost(h_pinned->danger);
     cudaFreeHost(h_pinned->creature);
     delete h_pinned;
+    delete h_data;
+    cudaStreamDestroy(map_stream);
+    cudaStreamDestroy(transfer_stream);
 }
 
-void Map::Save(int tick) {
-    size_t bytes = WIDTH * HEIGHT * sizeof(float);
-
-    cudaMemcpy(h_pinned->food,     h_data->food,     bytes, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_pinned->water,    h_data->water,    bytes, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_pinned->danger,   h_data->danger,   bytes, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_pinned->creature, h_data->creature, bytes, cudaMemcpyDeviceToHost);
-
-    char fname[64];
-    snprintf(fname, sizeof(fname), "map_%06d.bin", tick);
-
-    FILE* f = fopen(fname, "wb");
-    
-    int width = WIDTH, height = HEIGHT;
-    fwrite(&width,  sizeof(int), 1, f);
-    fwrite(&height, sizeof(int), 1, f);
-    fwrite(h_pinned->food,     sizeof(float), WIDTH * HEIGHT, f);
-    fwrite(h_pinned->danger,   sizeof(float), WIDTH * HEIGHT, f);
-    fwrite(h_pinned->creature, sizeof(float), WIDTH * HEIGHT, f);
-    fwrite(h_pinned->water,    sizeof(float), WIDTH * HEIGHT, f);
-    fclose(f);
-}
-
-void Map::refresh(curandState* random_states, int max_food_count) {
+void Map::refresh(unsigned long long seed, int max_food_count) {
     cudaMemset(h_data->creature, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->danger, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->food, 0, WIDTH * HEIGHT * sizeof(float));
     cudaMemset(h_data->water, 0, WIDTH * HEIGHT * sizeof(float));
 
-    place_food<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states);
-    place_water<<<(max_food_count + 255) / 256, 256>>>(d_data, max_food_count, random_states);
+    place_food<<<(max_food_count + 255) / 256, 256, 0, map_stream>>>(d_data, max_food_count, derive_seed(seed, 67890));
+    place_water<<<(max_food_count + 255) / 256, 256, 0, map_stream>>>(d_data, max_food_count, derive_seed(seed, 54321));
 }
 
 __device__ int get_cell_index(int x, int y) {
@@ -144,46 +148,45 @@ __device__ int get_water_curve_y(int x, int curve_id) {
     return get_cell_index(x, iy) / WIDTH;
 }
 
-__global__ void place_food(MapData* map, int max_food_count, curandState* random_states) {
+__global__ void place_food(MapData* map, int max_food_count, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= max_food_count) return;
+    if (idx >= max_food_count || idx >= MAX_CREATURE_N) return;
 
-    curandState state = random_states[idx];
+    
+    unsigned long long local_seed = derive_seed(seed, idx);
 
-    int rand_x = (int)(curand_uniform(&state) * WIDTH);
+    int rand_x = rand_int(derive_seed(local_seed, 12345), WIDTH);
     int rand_y;
 
-    if (curand_uniform(&state) < RESOURCE_RANDOM_FRACTION) {
-        rand_y = (int)(curand_uniform(&state) * HEIGHT);
+    if (rand_float(derive_seed(local_seed, 98765)) < RESOURCE_RANDOM_FRACTION) {
+        rand_y = rand_int(derive_seed(local_seed, 84264), HEIGHT);
     } else {
-        int curve_id = curand(&state) % FOOD_CURVES_N;
+        int curve_id = rand_int(derive_seed(local_seed, 67890), FOOD_CURVES_N);
         int curve_y = get_food_curve_y(rand_x, curve_id);
-        rand_y = curve_y + (int)roundf(curand_normal(&state) * RESOURCE_CURVE_STDDEV);
+        rand_y = rand_normal(derive_seed(local_seed, 13579), curve_y, RESOURCE_CURVE_STDDEV);
     }
 
     map->food[get_cell_index(rand_x, rand_y)] = 1.0f;
-    random_states[idx] = state;
 }
 
-__global__ void place_water(MapData* map, int max_water_count, curandState* random_states) {
+__global__ void place_water(MapData* map, int max_water_count, unsigned long long seed) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= max_water_count) return;
+    if (idx >= max_water_count || idx >= MAX_CREATURE_N) return;
 
-    curandState state = random_states[idx];
+    unsigned long long local_seed = derive_seed(seed, idx);
 
-    int rand_x = (int)(curand_uniform(&state) * WIDTH);
+    int rand_x = rand_int(derive_seed(local_seed, 54321), WIDTH);
     int rand_y;
 
-    if (curand_uniform(&state) < RESOURCE_RANDOM_FRACTION) {
-        rand_y = (int)(curand_uniform(&state) * HEIGHT);
+    if (rand_float(derive_seed(local_seed, 98765)) < RESOURCE_RANDOM_FRACTION) {
+        rand_y = rand_int(derive_seed(local_seed, 74753), HEIGHT);
     } else {
-        int curve_id = curand(&state) % WATER_CURVES_N;
+        int curve_id = rand_int(derive_seed(local_seed, 67890), WATER_CURVES_N);
         int curve_y = get_water_curve_y(rand_x, curve_id);
-        rand_y = curve_y + (int)roundf(curand_normal(&state) * RESOURCE_CURVE_STDDEV);
+        rand_y = rand_normal(derive_seed(local_seed, 13579), curve_y, RESOURCE_CURVE_STDDEV);
     }
 
     map->water[get_cell_index(rand_x, rand_y)] = 1.0f;
-    random_states[idx] = state;
 }
 
 __device__ float get_cell(MapData* map, int layer, int index) {
@@ -194,4 +197,31 @@ __device__ float get_cell(MapData* map, int layer, int index) {
         case 3: return map->water[index];
         default: return 0.0f; 
     }
+}
+
+void Map::Save(int t) {
+    size_t bytes = WIDTH * HEIGHT * sizeof(float);
+
+    if (save_thread.joinable()) {
+        auto start_time = std::chrono::high_resolution_clock::now();
+        save_thread.join();
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        if (duration.count() > 0) {
+            std::cout << "Time spent waiting in map save: " << duration.count() << " ms, t = " << t << std::endl;
+        }
+    }
+
+    cudaMemcpyAsync(h_pinned->food, h_data->food, bytes, cudaMemcpyDeviceToHost, transfer_stream);
+    cudaMemcpyAsync(h_pinned->water, h_data->water, bytes, cudaMemcpyDeviceToHost, transfer_stream);
+    cudaMemcpyAsync(h_pinned->danger, h_data->danger, bytes, cudaMemcpyDeviceToHost, transfer_stream);
+
+    cudaStreamSynchronize(transfer_stream);
+
+    save_thread = std::thread([this, t, bytes]() {
+        save_stream.write(reinterpret_cast<const char*>(&t), sizeof(int));
+        save_stream.write(reinterpret_cast<const char*>(h_pinned->food), bytes);
+        save_stream.write(reinterpret_cast<const char*>(h_pinned->water), bytes);
+        save_stream.write(reinterpret_cast<const char*>(h_pinned->danger), bytes);
+    });
 }

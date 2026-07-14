@@ -2,13 +2,18 @@
 # define MAP_CUH
 
 #include <cuda_fp8.h>
-#include <curand_kernel.h>
+#include <thread>
+#include "random/random.cuh"
+#include <fstream>
 
 struct MapData {
     float* food;
     float* water;
     float* danger;
     float* creature;
+
+    float season_sin;
+    float season_cos;
 };
 
 
@@ -20,18 +25,26 @@ class Map {
     MapData* h_data;
     MapData* h_pinned;
 
-    Map();
+    std::ofstream save_stream;
+
+    std::thread transfer_thread;
+    std::thread save_thread;
+
+    Map(std::string stream_name);
     ~Map();
 
     void Save(int tick);
 
     void remove_creatures_from_map();
 
-    void refresh(curandState* random_states, int max_food_count);
+    cudaStream_t transfer_stream;
+    cudaStream_t map_stream;
+
+    void refresh(unsigned long long seed, int max_food_count);
 };
 
-__global__ void place_food(MapData* map, int max_food_count, curandState* random_states);
-__global__ void place_water(MapData* map, int max_water_count, curandState* random_states);
+__global__ void place_food(MapData* map, int max_food_count, unsigned long long seed);
+__global__ void place_water(MapData* map, int max_water_count, unsigned long long seed);
 
 __device__ int get_cell_index(int x, int y);
 

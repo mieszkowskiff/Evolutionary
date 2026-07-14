@@ -10,8 +10,8 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 
 find_package(CUDAToolkit REQUIRED)
 
-
 option(ENABLE_DISPLAY "Build with OpenGL graphical display" ON)
+option(ENABLE_NVTX "Enable NVTX profiling ranges" ON)
 
 if(ENABLE_DISPLAY)
     message(STATUS "GUI Display is ENABLED. Looking for OpenGL libraries...")
@@ -22,8 +22,16 @@ if(ENABLE_DISPLAY)
     add_executable(Evolutionary 
         main.cu
         creatures/creatures.cu
+        creatures/choose_actions.cu
+        creatures/run_actions.cu
+        creatures/initialization.cu
+        creatures/actions/move.cu
+        creatures/actions/eat.cu
+        creatures/actions/drink.cu
+        creatures/actions/attack.cu
+        creatures/actions/reproduce.cu
+        creatures/save.cu
         map/map.cu
-        randomness/randomness.cu
         contract/contract.cu
         display/renderer.cu
     )
@@ -45,8 +53,16 @@ else()
         add_executable(Evolutionary 
         main.cu 
         creatures/creatures.cu
+        creatures/choose_actions.cu
+        creatures/run_actions.cu
+        creatures/initialization.cu
+        creatures/actions/move.cu
+        creatures/actions/eat.cu
+        creatures/actions/drink.cu
+        creatures/actions/attack.cu
+        creatures/actions/reproduce.cu
+        creatures/save.cu
         map/map.cu
-        randomness/randomness.cu
         contract/contract.cu
     )
 
@@ -61,3 +77,6 @@ endif()
 target_include_directories(Evolutionary PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_options(Evolutionary PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
+if(ENABLE_NVTX)
+    target_compile_definitions(Evolutionary PRIVATE ENABLE_NVTX)
+endif()

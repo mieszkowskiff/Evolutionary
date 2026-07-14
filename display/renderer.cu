@@ -23,12 +23,14 @@ __global__ void render_kernel(MapData* map_data, unsigned int* pbo_out, int widt
         float food = map_data->food[idx];
         float creature = map_data->creature[idx];
         float danger = map_data->danger[idx];
+        float water = map_data->water[idx];
 
-        unsigned char r = 255, g = 255, b = 255, a = 255;
+        unsigned char r = 0, g = 0, b = 0, a = 0;
 
-        if (creature > 0) {r = 0, g = 0, b = 255, a = 255;}
-        if (food > 0) {r = 0, g = 255, b = 0, a = 255;}
-        if (danger > 0) {r = 255;}
+        if (creature > 0) {r = 255, a = 255;}
+        if (food > 0) {g = 255, a = 255;}
+        //if (danger > 0) {r = 255;}
+        if (water > 0) {b = 255, a = 255;}
 
         pbo_out[idx] = (a << 24) | (b << 16) | (g << 8) | r;
     }
@@ -37,11 +39,9 @@ __global__ void render_kernel(MapData* map_data, unsigned int* pbo_out, int widt
 Renderer::Renderer(int w, int h) : width(w), height(h) {
     if (!glfwInit()) exit(-1);
     
-    // --- NOWE: Wymuszamy nowoczesny profil OpenGL ---
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
-    // ------------------------------------------------
     
     GLFWwindow* win = glfwCreateWindow(width, height, "Evolutionary", NULL, NULL);
     if (!win) { glfwTerminate(); exit(-1); }

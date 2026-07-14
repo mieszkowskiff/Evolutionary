@@ -2,3 +2,6 @@ build/
 .vscode/
 runs/*
 *.bundle
+save/*
+*.nsys-rep
+*.sqlite
