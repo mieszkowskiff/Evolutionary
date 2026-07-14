@@ -4,11 +4,8 @@
 #include "constants.h"
 #include "map/map.cuh"
 
-// Helper functions for Tensor Core memory layout
-// Memory is now grouped per creature to allow contiguous memory loads by a single warp
 
-
-#if true
+#if true //change to false for AoS instead of SoA (necessary for tensor cores)
 __host__ __device__ inline int get_sensor_idx(int creature_index, int sensor_index){
     return sensor_index * MAX_CREATURE_N + creature_index;
 }

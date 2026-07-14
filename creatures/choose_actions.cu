@@ -313,7 +313,8 @@ __global__ void d_PopulateOutputLayer_WMMA(CreatureData* d_creatures, int count)
 }
 
 
-#if true
+
+#if true //change to false to use tensor cores
 void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
 
@@ -329,22 +330,18 @@ void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos
 
     //TODO: sort actions per type to make it more efficient (partial coalescing)
 }
-#else 
+
+#else
 void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
-
-    // Percepcja zostaje po staremu
     d_PerceveMap<<<dim3((count + 127) / 128, (MILIEU_SENSORS_N + 7) / 8), dim3(128, 8), 0, compute_stream>>>(map->d_data, d_data, count);
     d_PerceveSimulation<<<(count + 255) / 256, 256, 0, compute_stream>>>(map->d_data, d_data, count);
 
-    // --- NOWE WYWOŁANIA DLA TENSOR CORES ---
-    // Potrzebujemy 32 wątków na stworzenie. Blok ma 128 wątków (4 warpy).
     int threads_per_block = 128;
     int blocks = (count * 32 + threads_per_block - 1) / threads_per_block;
 
     d_PopulateHiddenLayer_WMMA<<<blocks, threads_per_block, 0, compute_stream>>>(d_data, count);
     d_PopulateOutputLayer_WMMA<<<blocks, threads_per_block, 0, compute_stream>>>(d_data, count);
-    // ---------------------------------------
 
     d_ActionSelection<<<(count + 255) / 256, 256, 0, compute_stream>>>(d_data, seed, count);
 

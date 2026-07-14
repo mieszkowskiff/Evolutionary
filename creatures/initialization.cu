@@ -2,7 +2,6 @@
 #include <fstream>
 #include <iostream>
 
-
 Creatures::Creatures(unsigned long long seed, int count, long long *global_id_counter, std::string stream_name) {
     cudaStreamCreate(&compute_stream);
     cudaStreamCreate(&transfer_stream);
