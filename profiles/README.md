@@ -1,13 +1,49 @@
-1) contracting modes: 0, 1, 2, 3
-2) runtime argument --contract-mode 0|1|2|3
-3) Results: modes 0 and 1 - no difference in performance, modes 2 and 3 - better than modes 0 and 1, modes 2 and 3 - no differnce
-4) contract.cu has sections with all versions on contracting functions with comments on what the current version focuses on
-5) Commands:
+# Profiling
 
-To start a run and gather data: 
-nsys profile   --trace=nvtx   --sample=none   --force-overwrite=true   -o ../profiles/evo_contract_NEW_RUN_nvtx   ./Evolutionary     --seed 1     --initial-creatures 100096     --food-spawn-quantity 5064     --initial-food-multiplier 50     --save-every 0     --save-creatures 0     --contract-every 1     --max-ticks 1500     --nvtx 1     --contract-mode 3
+To profile the program, you must first build the project.
 
-To analyze the gathered data from the run:
-nsys stats ../profiles/evo_contract_NEW_RUN_nvtx.nsys-rep
+## 1. Build the Project
 
-6) CMakeLists.txt got some changes so build first before trying 5) 
+From the root directory of the repository, run the following commands:
+
+```bash
+mkdir build
+cd build
+mkdir save
+cmake ..
+make
+```
+
+## 2. Run the Profiler
+
+After building, navigate to the `profiles` folder:
+
+```bash
+cd ../profiles
+```
+
+Run the profiler using NVIDIA Nsight Systems (`nsys`):
+
+```bash
+DEBUGINFOD_URLS="" nsys profile --export=sqlite -o profile_name --resolve=false ../build/Evolutionary
+```
+
+> **Note:** You can replace `profile_name` with your desired output filename.
+
+## 3. View Statistics
+
+To read the profiling results directly from the terminal, use the following command (make sure the filename matches your output from the previous step):
+
+```bash
+nsys stats profile_name.sqlite
+```
+
+## 4. Plotting
+
+To generate plots from multiple profiles, gather them in the same directory and ensure their filenames match the regular expression `([a-zA-Z]+)(\d+)\.sqlite` (for example, `run01.sqlite`, `run02.sqlite`). 
+
+Then, execute the plotting script:
+
+```bash
+python3 main.py
+```

@@ -1,14 +1,6 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
-// #define INITIAL_FOOD_SPAWN_RATE 0.07f
-// #define FOOD_SPAWN_RATE 0.0004f
-// #define INITIAL_CREATURE_ENERGY 1
-// #define COST_OF_LIVING 0.01f
-// #define INITIAL_CREATURE_N 64
-
-// #define MAX_PARAMETER_VALUE 5.0f
-
 #define WIDTH 1024
 #define HEIGHT 1024
 
@@ -29,7 +21,6 @@
 #define SENSORS_MUTATION_PACE 2
 #define PARAMETER_MUTATION_STDDEV 0.2f
 #define ACTIONS_MUTATION_PACE 2
-
 
 #define MOVE_ACTION 0
 #define EAT_ACTION 1
@@ -74,5 +65,19 @@
 #define SAVE_AFTER_DAMAGE_MAP 0
 #define SAVE_AFTER_DAMAGE_MAP_EVERY 10
 
+#define USE_TENSOR_CORES false
+#define CONTRACTION_TYPE 3
+
+#define MAX_TICKS 2000
+
+#define NSYS_PROFILING_ENABLED true
+#define CONTRACT_EVERY_N_TICKS 10
+
+#define SEED 123456789ULL
+
+#define SAVE_START_TICK 0
+#define SAVE_END_TICK -1
+
+#define SAVE_DIRECTORY "save/"
 
 #endif

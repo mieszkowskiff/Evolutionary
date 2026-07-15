@@ -315,6 +315,7 @@ __global__ void d_PopulateOutputLayer_WMMA(CreatureData* d_creatures, int count)
 
 
 #if true //change to false to use tensor cores
+
 void Creatures::ChooseAction(Map* map, unsigned long long seed, float season_cos, float season_sin) {
     cudaMemset(h_data->action_types_counts, 0, ACTION_TYPES_N * sizeof(unsigned int));
 

@@ -10,7 +10,6 @@ import re
 DIRECTORY = "."
 
 def parse_filename(fname):
-    # Dopasowuje grupy (np. 'AoS', 'tensor', 'original') i numery przebiegów
     match = re.match(r'([a-zA-Z]+)(\d+)\.sqlite', fname)
     if match:
         return match.group(1), int(match.group(2))

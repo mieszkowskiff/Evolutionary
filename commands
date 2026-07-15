@@ -1,3 +1,0 @@
-sudo /usr/local/cuda/bin/ncu -f -k place_food --set full -o place_food_report ./Evolutionary
-
-nsys profile -f -o main_report ./Evolutionary
