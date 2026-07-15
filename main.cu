@@ -25,8 +25,8 @@
 #include "display/renderer.h"
 #endif
 
-volatile std::sig_atomic_t interrupted = 0;
 
+volatile std::sig_atomic_t interrupted = 0;
 extern "C" void signal_handler(int signum) {
     interrupted = 1;
 }
@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
 
     *global_id_counter = 0;
 
+    // Initialize creatures, two copies for double buffering and ping-pong
     Creatures creatures1 = Creatures(SEED, INITIAL_CREATURE_N, global_id_counter, SAVE_DIRECTORY + std::string("stream1.bin"));
     Creatures creatures2 = Creatures(SEED, 0, global_id_counter, SAVE_DIRECTORY + std::string("stream2.bin"));
 
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
         float season_cos = cosf(season_phase);
         float season_sin = sinf(season_phase);
 
-        if  (30000 < t && t < 30100){
+        if  (SAVE_START_TICK < t && t < SAVE_END_TICK){
             map.transfer_thread = std::thread(&Map::Save, &map, t);
             map.transfer_thread = std::thread(&Map::Save, &map, t);
         } 
