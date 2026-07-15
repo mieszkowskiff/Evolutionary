@@ -363,9 +363,9 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (30000 < t && t < 30100) {
+        if (t < 1000) {
             NVTX_PUSH_ENABLED(cfg.nvtx, "StartCreatureSaveThread");
-            next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, true, true, true);
+            next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, true, false, false);
             NVTX_POP_ENABLED(cfg.nvtx);
         }
         //else next_creatures->transfer_thread = std::thread(&Creatures::Save, next_creatures, next_creatures->count - next_creatures->action_types_counts[REPRODUCE_ACTION], t, false, false, false);

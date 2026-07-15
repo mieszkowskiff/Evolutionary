@@ -9,8 +9,8 @@
 
 // #define MAX_PARAMETER_VALUE 5.0f
 
-#define WIDTH 256
-#define HEIGHT 256
+#define WIDTH 1024
+#define HEIGHT 1024
 
 #define MAX_CREATURE_N (1 << 19)
 #define INITIAL_CREATURE_N (1 << 17)
